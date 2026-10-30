@@ -69,6 +69,14 @@
           <div id="micLevelBar" class="h-full bg-emerald-400 rounded-full w-0 transition-all duration-75"></div>
         </div>
         <span id="detectedPitchLabel" class="text-[11px] font-mono text-emerald-400 w-8 text-center font-bold">--</span>
+
+        <!-- 新增：麥克風靈敏度調節下拉選單 -->
+        <select id="micSensitivitySelect" class="bg-slate-900 text-[10px] text-pink-400 font-bold border border-slate-700 rounded px-1.5 py-0.5 focus:outline-none focus:border-pink-500 cursor-pointer" title="麥克風靈敏度">
+          <option value="ultra">🎤 超靈敏 (電腦微音/輕唱)</option>
+          <option value="high" selected>🎤 高靈敏 (電腦推薦)</option>
+          <option value="medium">🎤 一般</option>
+          <option value="low">🎤 低靈敏 (高分貝/吵雜)</option>
+        </select>
       </div>
 
       <!-- 計分與連擊 -->
@@ -574,6 +582,7 @@
       constructor() {
         this.audioCtx = null;
         this.analyser = null;
+        this.gainNode = null;
         this.micStream = null;
         this.buffer = null;
         this.yinBuffer = null;
@@ -581,27 +590,70 @@
         this.recentMidiHistory = [];
         this.cachedResult = { pitch: null, rms: 0, clarity: 0 };
         this.lastProcessTime = 0;
+
+        // 靈敏度參數配置 (預設高靈敏度，大幅降低門檻與放大收音)
+        this.sensitivity = 'high';
+        this.rmsThreshold = 0.005; // 大幅降低音量門檻 (原本 0.022 太苛刻)
+        this.yinThreshold = 0.22;  // 放寬週期容忍度，輕鬆識別電腦麥克風
+        this.micGainMultiplier = 2.6; // 前級放大 2.6 倍
       }
+
+      setSensitivity(mode) {
+        this.sensitivity = mode;
+        if (mode === 'ultra') {
+          this.rmsThreshold = 0.0025;
+          this.yinThreshold = 0.26;
+          this.micGainMultiplier = 4.0;
+        } else if (mode === 'high') {
+          this.rmsThreshold = 0.005;
+          this.yinThreshold = 0.22;
+          this.micGainMultiplier = 2.6;
+        } else if (mode === 'medium') {
+          this.rmsThreshold = 0.012;
+          this.yinThreshold = 0.18;
+          this.micGainMultiplier = 1.5;
+        } else {
+          this.rmsThreshold = 0.025;
+          this.yinThreshold = 0.14;
+          this.micGainMultiplier = 1.0;
+        }
+        if (this.gainNode && this.audioCtx) {
+          this.gainNode.gain.setValueAtTime(this.micGainMultiplier, this.audioCtx.currentTime);
+        }
+      }
+
       async start() {
         if (this.isActive) return true;
         try {
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           this.audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
+
+          // 核心修復：關閉 noiseSuppression 與 echoCancellation，避免瀏覽器把唱歌當雜音過濾吃掉！
           this.micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
+              echoCancellation: false,
+              noiseSuppression: false,
               autoGainControl: true,
               channelCount: 1
             }
           });
+
           const micSource = this.audioCtx.createMediaStreamSource(this.micStream);
+          
+          // 前級數位增益放大器，解決電腦收音微弱問題
+          this.gainNode = this.audioCtx.createGain();
+          this.gainNode.gain.setValueAtTime(this.micGainMultiplier, this.audioCtx.currentTime);
+
           this.analyser = this.audioCtx.createAnalyser();
-          // 降低 FFT 長度至 1024，手機運算提速 4 倍！
           this.analyser.fftSize = 1024;
+          this.analyser.smoothingTimeConstant = 0.1;
           this.buffer = new Float32Array(this.analyser.fftSize);
           this.yinBuffer = new Float32Array(this.analyser.fftSize / 2);
-          micSource.connect(this.analyser);
+
+          // 串接：麥克風 -> 數位放大器 -> 分析器
+          micSource.connect(this.gainNode);
+          this.gainNode.connect(this.analyser);
+
           this.isActive = true;
           return true;
         } catch (err) {
@@ -625,8 +677,8 @@
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
 
         const now = performance.now();
-        // 限制音高運算頻率為每 25ms 一次，解放 CPU
-        if (now - this.lastProcessTime < 25) {
+        // 將音高運算頻率提速至每 16ms 一次 (60Hz 同步刷新，反應極快)
+        if (now - this.lastProcessTime < 16) {
           return this.cachedResult;
         }
         this.lastProcessTime = now;
@@ -641,14 +693,14 @@
         }
         const rms = Math.sqrt((sumSquares * 2) / buflen);
 
-        // 提高雜音閥值：低於閥值判定為靜音，光點徹底安靜隱藏
-        if (rms < 0.022) {
+        // 靈敏度判斷：低於閥值判定為靜音
+        if (rms < this.rmsThreshold) {
           this.recentMidiHistory = [];
           this.cachedResult = { pitch: null, rms, clarity: 0 };
           return this.cachedResult;
         }
 
-        // 2. 工業級 YIN 差分演算法（高抗噪、絕不亂跳）
+        // 2. 工業級 YIN 差分演算法
         const halfLen = buflen / 2;
         const yinBuffer = this.yinBuffer;
         yinBuffer[0] = 1;
@@ -666,8 +718,8 @@
 
         const sampleRate = this.audioCtx.sampleRate;
         const minTau = Math.floor(sampleRate / 1050); // C6
-        const maxTau = Math.floor(sampleRate / 70);   // D2
-        const threshold = 0.15; // 嚴格週期閥值
+        const maxTau = Math.floor(sampleRate / 65);   // C2
+        const threshold = this.yinThreshold;
 
         let bestTau = -1;
         for (let tau = minTau; tau < maxTau; tau++) {
@@ -706,9 +758,9 @@
           return this.cachedResult;
         }
 
-        // 3. 中位數抗抖濾波器 (Median Filter, 取近 5 次的中位數，徹底殺死抽搐跳動)
+        // 3. 3 幀快速中位數濾波 (從原本 5 幀縮減至 3 幀，反應更即時、零延遲)
         this.recentMidiHistory.push(detectedMidi);
-        if (this.recentMidiHistory.length > 5) {
+        if (this.recentMidiHistory.length > 3) {
           this.recentMidiHistory.shift();
         }
 
@@ -859,6 +911,14 @@
             } else {
               await this.pitchEngine.start();
             }
+          });
+        }
+
+        // 麥克風靈敏度切換事件
+        const micSensSel = document.getElementById('micSensitivitySelect');
+        if (micSensSel) {
+          micSensSel.addEventListener('change', (e) => {
+            this.pitchEngine.setSensitivity(e.target.value);
           });
         }
 
@@ -1358,7 +1418,8 @@
         const micBar = document.getElementById('micLevelBar');
         const pitchLabel = document.getElementById('detectedPitchLabel');
 
-        if (micBar) micBar.style.width = Math.min(100, micData.rms * 600) + '%';
+        // 音量條響應靈敏度提高，微小發聲也能看到綠條跳動
+        if (micBar) micBar.style.width = Math.min(100, micData.rms * 1200) + '%';
         if (pitchLabel) {
           pitchLabel.innerText = micData.pitch !== null ? midiToName(micData.pitch) : "--";
         }
@@ -1486,14 +1547,13 @@
         const nowMs = performance.now();
         const activeSongTime = this.currentTime;
 
-        // 加權平滑抗跳動濾波 (指數平滑)
+        // 加權平滑抗跳動濾波 (反應係數提升至 0.42，跟唱極速跟手)
         if (micData.pitch !== null) {
           if (this.smoothedVocalMidi === null) {
             this.smoothedVocalMidi = micData.pitch;
           } else {
             const pitchDelta = micData.pitch - this.smoothedVocalMidi;
-            // 根據音高差距動態調整平滑係數，微小變化絲滑過渡，大音程果斷跟隨
-            const smoothFactor = Math.abs(pitchDelta) > 2.5 ? 0.45 : 0.22;
+            const smoothFactor = Math.abs(pitchDelta) > 2.0 ? 0.65 : 0.42;
             this.smoothedVocalMidi += pitchDelta * smoothFactor;
           }
 
