@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Web KTV Pitch Game (離線版)</title>
+  
+  <!-- 載入 Tailwind CSS 樣式庫（修復畫面跑版成純文字問題） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- PWA & 移动端全屏元标签 (iOS Safari & Android Chrome) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KTV Pitch (離線版)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#020617">
+
+  <!-- 內嵌 Web App Manifest (支援免憑證直接安裝到桌面) -->
+  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Web%20KTV%20Pitch%20Master%20(%E9%9B%A2%E7%B7%9A%E7%89%88)%22%2C%22short_name%22%3A%22KTV%E9%9B%A2%E7%B7%9A%E7%89%88%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22orientation%22%3A%22landscape%22%2C%22background_color%22%3A%22%23020617%22%2C%22theme_color%22%3A%22%23020617%22%7D">
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    .font-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+    ::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 1); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 h-screen w-screen overflow-hidden flex flex-col">
+
+  <!-- =============================== 頂部導航與狀態列 =============================== -->
+  <header class="h-14 bg-slate-900/90 border-b border-slate-800/80 px-4 flex items-center justify-between z-20 backdrop-blur-md flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 flex items-center justify-center shadow-lg shadow-pink-500/20 text-white font-bold text-xs">
+        🎤
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-wide flex items-center gap-2">
+          WEB KTV PITCH MASTER
+          <span class="text-[10px] font-normal px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">離線版 OFFLINE</span>
+        </h1>
+        <p class="text-[10px] text-slate-400 font-mono">C2-C6 (4 Octaves) · Pitch & Harmony Scoring</p>
+      </div>
+    </div>
+
+    <!-- 中間：功能按鈕入口 -->
+    <div class="flex items-center gap-2">
+      <!-- PWA 安裝按鈕 -->
+      <button id="pwaInstallBtn" class="hidden bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-400 text-white text-xs px-3 py-1.5 rounded-lg border border-pink-400/30 flex items-center gap-1.5 shadow-md shadow-pink-900/40 transition-all active:scale-95">
+        <span>📲 安裝離線 App</span>
+      </button>
+
+      <button id="openTrackModalBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors">
+        <span>🎼 音軌角色</span>
+      </button>
+
+      <button id="openMixerModalBtn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 transition-colors">
+        <span>🎛️ 混音器</span>
+      </button>
+    </div>
+
+    <!-- 右側：麥克風狀態與計分板 -->
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
+        <button id="micToggleBtn" class="w-6 h-6 rounded flex items-center justify-center bg-rose-500 text-white text-xs hover:bg-rose-400 transition-colors shadow">
+          🎤
+        </button>
+        <div class="w-14 h-2 bg-slate-950 rounded-full overflow-hidden p-0.5">
+          <div id="micLevelBar" class="h-full bg-emerald-400 rounded-full w-0 transition-all duration-75"></div>
+        </div>
+        <span id="detectedPitchLabel" class="text-[11px] font-mono text-emerald-400 w-12 text-center">--</span>
+      </div>
+
+      <div class="flex items-center gap-3 font-mono">
+        <div class="text-right">
+          <div class="text-[9px] text-slate-400 tracking-wider">SCORE</div>
+          <div id="scoreDisplay" class="text-sm font-bold text-amber-300">0</div>
+        </div>
+        <div class="h-6 w-px bg-slate-800"></div>
+        <div class="text-right">
+          <div class="text-[9px] text-slate-400 tracking-wider">COMBO</div>
+          <div id="comboDisplay" class="text-sm font-bold text-pink-400">0</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- =============================== 主視口：鋼琴卷簾跑道與時間軸 =============================== -->
+  <main class="relative flex-1 w-full h-full overflow-hidden bg-slate-950">
+    <!-- 頂部時間軸微縮圖 (64px 高度) -->
+    <div id="timelineContainer" class="absolute top-0 left-0 right-0 h-16 bg-slate-900/95 border-b border-slate-800/90 z-10 flex items-center select-none cursor-pointer backdrop-blur-sm shadow-md">
+      <div id="timelineTrack" class="relative w-full h-full overflow-hidden">
+        <canvas id="timelineCanvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+        <div id="timelineProgress" class="absolute top-0 bottom-0 left-0 bg-cyan-500/15 border-r-2 border-cyan-400 pointer-events-none w-0 transition-none"></div>
+        <div id="timelineThumb" class="absolute top-0 bottom-0 -ml-1.5 w-3 bg-gradient-to-b from-cyan-300 via-cyan-400 to-cyan-500 rounded-sm shadow-[0_0_12px_rgba(6,182,212,0.9)] pointer-events-none left-0 z-10 flex items-start justify-center">
+          <div class="w-2.5 h-1.5 rounded-b-sm bg-white shadow-sm"></div>
+        </div>
+        <div id="timelineLabels" class="absolute inset-0 pointer-events-none flex items-end justify-between px-3 pb-1 text-[10px] font-mono text-slate-300 z-10">
+          <span class="bg-slate-950/75 px-1.5 py-0.5 rounded border border-slate-800" id="timelineStartLabel">00:00</span>
+          <span class="text-slate-400 text-[9px] bg-slate-950/70 px-2.5 py-0.5 rounded border border-slate-800 backdrop-blur-sm" id="timelineCenterTip">
+            兩指縮放 · 左右拖拽穿梭時間軸
+          </span>
+          <span id="timelineEndLabel" class="bg-slate-950/75 px-1.5 py-0.5 rounded border border-slate-800">00:00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 遊戲主畫布 -->
+    <canvas id="gameCanvas" class="w-full h-full block"></canvas>
+
+    <!-- 判定彈窗 -->
+    <div id="judgmentPopup" class="absolute top-20 right-8 pointer-events-none flex flex-col items-end transition-opacity duration-150 opacity-0 z-20">
+      <div id="judgmentText" class="text-xl font-black italic tracking-wider drop-shadow-[0_0_15px_rgba(34,197,94,0.8)] text-emerald-400">
+        PERFECT
+      </div>
+      <div id="judgmentCents" class="text-xs font-mono font-semibold text-slate-300 bg-slate-900/80 px-2 py-0.5 rounded-full border border-slate-700/80 mt-1">
+        0 cents
+      </div>
+    </div>
+
+    <!-- 首次啟用麥克風提示覆蓋層 -->
+    <div id="micPromptOverlay" class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-30 transition-opacity duration-300">
+      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-sm w-full mx-4 text-center shadow-2xl flex flex-col items-center">
+        <div class="w-16 h-16 rounded-full bg-pink-500/20 text-pink-400 border border-pink-500/40 flex items-center justify-center text-3xl mb-4">
+          🎤
+        </div>
+        <h3 class="text-base font-bold text-white mb-2">啟用麥克風以開始練唱</h3>
+        <p class="text-xs text-slate-400 leading-relaxed mb-6">
+          音高判定完全在你的手機/電腦本地即時運算，不上傳雲端，零流量且極速無延遲。
+        </p>
+        <button id="startMicBtn" class="w-full py-2.5 px-4 bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-pink-500/30 transition-all active:scale-95">
+          開始使用
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- =============================== 底部播放與操作控制列 =============================== -->
+  <footer class="h-16 bg-slate-900/95 border-t border-slate-800 px-6 flex items-center justify-between z-20 flex-shrink-0 backdrop-blur-md">
+    <div class="flex items-center gap-3">
+      <button id="playPauseBtn" class="h-10 px-4 bg-pink-500 hover:bg-pink-400 active:scale-95 text-white rounded-xl flex items-center gap-2 font-bold text-xs shadow-lg shadow-pink-500/20 transition-all">
+        <span id="playIcon">▶</span>
+        <span id="playText">播放 (Space)</span>
+      </button>
+
+      <button id="rewindBtn" class="w-10 h-10 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 rounded-xl flex items-center justify-center transition-all border border-slate-700" title="回到開頭">
+        ⏮
+      </button>
+
+      <div class="text-xs font-mono text-slate-400 ml-1 mr-2">
+        <span id="timeCurrent" class="text-slate-200 font-semibold">00:00</span>
+        <span class="mx-1">/</span>
+        <span id="timeTotal">00:00</span>
+      </div>
+
+      <div class="h-6 w-px bg-slate-800 mx-1"></div>
+
+      <!-- 歌曲選擇與載入 MIDI 移至底部 -->
+      <div class="relative">
+        <select id="presetSelect" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-3 py-2 focus:outline-none focus:border-pink-500 transition-colors cursor-pointer appearance-none pr-8">
+          <option value="twinkle">預設 1: 小星星 (主旋律+伴奏)</option>
+          <option value="ode">預設 2: 歡樂頌 (和聲合唱)</option>
+          <option value="birthday">預設 3: 生日快樂 (三重奏)</option>
+        </select>
+        <span class="text-[10px] text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">▼</span>
+      </div>
+
+      <label class="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs px-3 py-2 rounded-lg border border-violet-400/30 shadow-md shadow-indigo-950 flex items-center gap-1.5 cursor-pointer transition-all active:scale-95">
+        <span>📁 載入 MIDI</span>
+        <input type="file" id="midiFileInput" accept=".mid,.midi" class="hidden">
+      </label>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <button id="pedalToggleBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-2 transition-all">
+        <span>延音踏板: <b id="pedalStateLabel" class="text-slate-400">關 (S)</b></span>
+      </button>
+
+      <div class="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700 text-xs">
+        <span class="text-slate-400 mr-1">移調:</span>
+        <button id="transposeDown" class="w-6 h-6 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold flex items-center justify-center active:scale-90">-</button>
+        <span id="transposeVal" class="w-8 text-center font-mono font-bold text-pink-400">0</span>
+        <button id="transposeUp" class="w-6 h-6 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold flex items-center justify-center active:scale-90">+</button>
+      </div>
+
+      <button id="leadMuteToggle" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-2">
+        <span id="leadMuteIcon">🔊</span>
+        <span>主唱導音</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- =============================== 模態彈窗 1：音軌角色分配 =============================== -->
+  <div id="trackModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden mx-4">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-white">MIDI 音軌角色分配與多聲部設定</h2>
+          <p class="text-[11px] text-slate-400 mt-0.5">主旋律為 100% 不透明高亮條；二部和聲為半透明彩色條並同時評分</p>
+        </div>
+        <button id="closeTrackModalBtn" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1 space-y-3" id="trackListContainer"></div>
+
+      <div class="px-6 py-3 border-t border-slate-800 flex justify-end gap-2 bg-slate-900/60">
+        <button id="confirmTracksBtn" class="px-5 py-2 bg-pink-500 hover:bg-pink-400 text-white text-xs font-semibold rounded-xl shadow-lg shadow-pink-500/20 active:scale-95 transition-all">
+          儲存並套用
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== 模態彈窗 2：混音器 =============================== -->
+  <div id="mixerModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden mx-4">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-white">多軌混音器與音色選擇</h2>
+          <p class="text-[11px] text-slate-400 mt-0.5">獨立調節各軌音量與樂器物理音色（大三角鋼琴、管弦弦樂、貝斯等）</p>
+        </div>
+        <button id="closeMixerModalBtn" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1 space-y-3" id="mixerListContainer"></div>
+
+      <div class="px-6 py-3 border-t border-slate-800 flex justify-between items-center bg-slate-900/60 text-xs">
+        <span class="text-slate-400">提示：雙擊推桿可重設為 100%</span>
+        <button id="resetMixerBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700">
+          全部重設
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== 核心邏輯腳本 =============================== -->
+  <script>
+    const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const MIN_PITCH_DISPLAY = 36; // C2
+    const MAX_PITCH_DISPLAY = 84; // C6
+
+    function midiToName(midi) {
+      const semitone = ((Math.round(midi) % 12) + 12) % 12;
+      const octave = Math.floor(Math.round(midi) / 12) - 1;
+      return `${NOTE_NAMES[semitone]}${octave}`;
+    }
+
+    class SimpleMidiParser {
+      static parse(arrayBuffer) {
+        const view = new DataView(arrayBuffer);
+        let offset = 0;
+        const readStr = (len) => {
+          let str = "";
+          for (let i = 0; i < len; i++) str += String.fromCharCode(view.getUint8(offset++));
+          return str;
+        };
+
+        if (readStr(4) !== "MThd") throw new Error("非有效 MIDI");
+        const headerLen = view.getUint32(offset); offset += 4;
+        const format = view.getUint16(offset); offset += 2;
+        const numTracks = view.getUint16(offset); offset += 2;
+        const timeDivision = view.getUint16(offset); offset += 2;
+        offset += (headerLen - 6);
+
+        const rawTracks = [];
+        let globalMicrosecondsPerBeat = 500000;
+
+        for (let t = 0; t < numTracks; t++) {
+          if (offset >= view.byteLength) break;
+          const trackHeader = readStr(4);
+          const trackLen = view.getUint32(offset); offset += 4;
+          if (trackHeader !== "MTrk") { offset += trackLen; continue; }
+
+          const trackEnd = offset + trackLen;
+          let currentTick = 0;
+          let lastStatus = 0;
+          let trackName = `Track ${t + 1}`;
+          let programNumber = 0;
+          const events = [];
+
+          while (offset < trackEnd) {
+            let delta = 0, byte = 0;
+            do {
+              byte = view.getUint8(offset++);
+              delta = (delta << 7) | (byte & 0x7F);
+            } while (byte & 0x80);
+            currentTick += delta;
+
+            let status = view.getUint8(offset);
+            if (status & 0x80) { offset++; lastStatus = status; }
+            else { status = lastStatus; }
+
+            const eventType = status >> 4;
+            const channel = status & 0x0F;
+
+            if (status === 0xFF) {
+              const metaType = view.getUint8(offset++);
+              let metaLen = 0;
+              do {
+                byte = view.getUint8(offset++);
+                metaLen = (metaLen << 7) | (byte & 0x7F);
+              } while (byte & 0x80);
+
+              if (metaType === 0x03) {
+                let str = "";
+                for (let i = 0; i < metaLen; i++) str += String.fromCharCode(view.getUint8(offset + i));
+                if (str.trim()) trackName = str.trim();
+              } else if (metaType === 0x05 || metaType === 0x01) {
+                const textBytes = new Uint8Array(view.buffer, offset, metaLen);
+                let lyricStr = "";
+                try {
+                  lyricStr = new TextDecoder('utf-8').decode(textBytes);
+                } catch (e) {
+                  for (let i = 0; i < metaLen; i++) lyricStr += String.fromCharCode(textBytes[i]);
+                }
+                lyricStr = lyricStr.replace(/[\r\n\/\\]/g, '').trim();
+                if (lyricStr) events.push({ type: 'lyric', tick: currentTick, text: lyricStr });
+              } else if (metaType === 0x51 && metaLen === 3) {
+                globalMicrosecondsPerBeat = (view.getUint8(offset) << 16) | (view.getUint8(offset + 1) << 8) | view.getUint8(offset + 2);
+              }
+              offset += metaLen;
+            } else if (status === 0xF0 || status === 0xF7) {
+              let sysLen = 0;
+              do {
+                byte = view.getUint8(offset++);
+                sysLen = (sysLen << 7) | (byte & 0x7F);
+              } while (byte & 0x80);
+              offset += sysLen;
+            } else if (eventType === 0x9) {
+              const note = view.getUint8(offset++);
+              const vel = view.getUint8(offset++);
+              events.push({ type: vel > 0 ? 'noteOn' : 'noteOff', tick: currentTick, note, vel, channel });
+            } else if (eventType === 0x8) {
+              const note = view.getUint8(offset++);
+              const vel = view.getUint8(offset++);
+              events.push({ type: 'noteOff', tick: currentTick, note, vel, channel });
+            } else if (eventType === 0xC) {
+              programNumber = view.getUint8(offset++);
+            } else if (eventType === 0xB) {
+              const cc = view.getUint8(offset++);
+              const val = view.getUint8(offset++);
+              events.push({ type: 'cc', tick: currentTick, cc, val, channel });
+            } else {
+              offset += 1;
+            }
+          }
+          rawTracks.push({ id: t, name: trackName, program: programNumber, events });
+        }
+
+        const secondsPerTick = (globalMicrosecondsPerBeat / 1000000) / timeDivision;
+        const parsedTracks = [];
+
+        rawTracks.forEach(rt => {
+          const activeNotes = new Map();
+          const notes = [];
+          const lyricsList = [];
+
+          rt.events.forEach(ev => {
+            const timeSec = ev.tick * secondsPerTick;
+            if (ev.type === 'lyric') lyricsList.push({ time: timeSec, text: ev.text });
+          });
+
+          rt.events.forEach(ev => {
+            const timeSec = ev.tick * secondsPerTick;
+            if (ev.type === 'noteOn') {
+              activeNotes.set(ev.note, { start: timeSec, vel: ev.vel });
+            } else if (ev.type === 'noteOff') {
+              if (activeNotes.has(ev.note)) {
+                const on = activeNotes.get(ev.note);
+                notes.push({
+                  midi: ev.note,
+                  start: on.start,
+                  dur: Math.max(0.08, timeSec - on.start),
+                  vel: on.vel,
+                  lyric: ''
+                });
+                activeNotes.delete(ev.note);
+              }
+            }
+          });
+
+          if (notes.length > 0 && lyricsList.length > 0) {
+            lyricsList.forEach(lyr => {
+              let nearestNote = null, minDiff = 0.25;
+              notes.forEach(n => {
+                const diff = Math.abs(n.start - lyr.time);
+                if (diff < minDiff) { minDiff = diff; nearestNote = n; }
+              });
+              if (nearestNote) nearestNote.lyric = lyr.text;
+            });
+          }
+
+          if (notes.length > 0) {
+            notes.sort((a, b) => a.start - b.start);
+            let instrument = 'piano';
+            if (rt.program >= 32 && rt.program <= 39) instrument = 'bass';
+            else if (rt.program >= 40 && rt.program <= 47) instrument = 'strings';
+            else if (rt.program >= 24 && rt.program <= 31) instrument = 'guitar';
+
+            parsedTracks.push({
+              id: rt.id,
+              name: rt.name,
+              instrument,
+              role: 'backing',
+              notes,
+              volume: 1.0,
+              isMuted: false,
+              isSolo: false
+            });
+          }
+        });
+
+        if (parsedTracks.length > 0) {
+          parsedTracks[0].role = 'lead';
+          if (parsedTracks.length > 1) parsedTracks[1].role = 'harmony';
+        }
+        return parsedTracks;
+      }
+    }
+
+    class AudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.masterGain = null;
+        this.trackGains = new Map();
+        this.leadVocalMuted = false;
+        this.sustainPedalActive = false;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContextClass({ latencyHint: 'interactive' });
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
+          this.masterGain.connect(this.ctx.destination);
+        }
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+      }
+      getTrackGain(trackId) {
+        if (!this.trackGains.has(trackId)) {
+          const g = this.ctx.createGain();
+          g.gain.setValueAtTime(1.0, this.ctx.currentTime);
+          g.connect(this.masterGain);
+          this.trackGains.set(trackId, g);
+        }
+        return this.trackGains.get(trackId);
+      }
+      setSustainPedal(active) {
+        this.sustainPedalActive = active;
+        const label = document.getElementById('pedalStateLabel');
+        if (label) {
+          label.innerText = active ? "開啟 (S)" : "關 (S)";
+          label.className = active ? "text-amber-300 font-bold" : "text-slate-400";
+        }
+      }
+      playNote(track, midiNote, duration, velocity = 90) {
+        if (!this.ctx || track.isMuted) return;
+        if (track.role === 'lead' && this.leadVocalMuted) return;
+
+        const now = this.ctx.currentTime;
+        const trackGain = this.getTrackGain(track.id);
+        const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+        const velGain = Math.max(0.15, velocity / 127);
+        const effectiveDur = this.sustainPedalActive ? Math.max(duration, 3.2) : duration;
+
+        if (track.instrument === 'piano') {
+          const voiceGain = this.ctx.createGain();
+          voiceGain.connect(trackGain);
+
+          const bufferSize = Math.floor(this.ctx.sampleRate * 0.035);
+          const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const output = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.007));
+          }
+          const noiseSrc = this.ctx.createBufferSource();
+          noiseSrc.buffer = noiseBuffer;
+          const noiseFilter = this.ctx.createBiquadFilter();
+          noiseFilter.type = 'bandpass';
+          noiseFilter.frequency.value = Math.min(3200, freq * 3.5);
+          noiseFilter.Q.value = 1.8;
+          noiseSrc.connect(noiseFilter);
+          noiseFilter.connect(voiceGain);
+          noiseSrc.start(now);
+
+          const osc1 = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator();
+          const toneFilter = this.ctx.createBiquadFilter();
+
+          toneFilter.type = 'lowpass';
+          toneFilter.frequency.setValueAtTime(Math.min(8000, freq * 6), now);
+          toneFilter.frequency.exponentialRampToValueAtTime(Math.max(120, freq * 1.5), now + effectiveDur);
+
+          osc1.type = 'triangle';
+          osc2.type = 'sine';
+          osc1.frequency.setValueAtTime(freq, now);
+          osc2.frequency.setValueAtTime(freq * 1.002, now);
+
+          voiceGain.gain.setValueAtTime(0.0001, now);
+          voiceGain.gain.linearRampToValueAtTime(velGain * 0.9, now + 0.006);
+          voiceGain.gain.exponentialRampToValueAtTime(velGain * 0.45, now + 0.12);
+          voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + effectiveDur);
+
+          osc1.connect(toneFilter);
+          osc2.connect(toneFilter);
+          toneFilter.connect(voiceGain);
+
+          osc1.start(now);
+          osc2.start(now);
+          osc1.stop(now + effectiveDur);
+          osc2.stop(now + effectiveDur);
+        } else if (track.instrument === 'strings') {
+          const osc1 = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator();
+          const strGain = this.ctx.createGain();
+          const strFilter = this.ctx.createBiquadFilter();
+
+          strFilter.type = 'lowpass';
+          strFilter.frequency.value = Math.min(4200, freq * 3);
+
+          osc1.type = 'sawtooth';
+          osc2.type = 'sawtooth';
+          osc1.frequency.setValueAtTime(freq, now);
+          osc2.frequency.setValueAtTime(freq * 1.006, now);
+
+          strGain.gain.setValueAtTime(0.001, now);
+          strGain.gain.linearRampToValueAtTime(velGain * 0.5, now + 0.08);
+          strGain.gain.setValueAtTime(velGain * 0.5, now + effectiveDur - 0.05);
+          strGain.gain.exponentialRampToValueAtTime(0.0001, now + effectiveDur + 0.3);
+
+          osc1.connect(strFilter);
+          osc2.connect(strFilter);
+          strFilter.connect(strGain);
+          strGain.connect(trackGain);
+
+          osc1.start(now);
+          osc2.start(now);
+          osc1.stop(now + effectiveDur + 0.3);
+          osc2.stop(now + effectiveDur + 0.3);
+        } else {
+          const osc = this.ctx.createOscillator();
+          const genGain = this.ctx.createGain();
+          osc.type = track.instrument === 'bass' ? 'triangle' : 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+
+          genGain.gain.setValueAtTime(velGain * 0.7, now);
+          genGain.gain.exponentialRampToValueAtTime(0.0001, now + effectiveDur);
+
+          osc.connect(genGain);
+          genGain.connect(trackGain);
+
+          osc.start(now);
+          osc.stop(now + effectiveDur);
+        }
+      }
+    }
+
+    class PitchDetectorEngine {
+      constructor() {
+        this.audioCtx = null;
+        this.analyser = null;
+        this.micStream = null;
+        this.buffer = null;
+        this.historyPitches = [];
+        this.isActive = false;
+      }
+      async start() {
+        if (this.isActive) return true;
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          this.audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
+          this.micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+          });
+          const micSource = this.audioCtx.createMediaStreamSource(this.micStream);
+          this.analyser = this.audioCtx.createAnalyser();
+          this.analyser.fftSize = 2048;
+          this.buffer = new Float32Array(this.analyser.fftSize);
+          micSource.connect(this.analyser);
+          this.isActive = true;
+          return true;
+        } catch (err) {
+          console.error("麥克風無法啟動:", err);
+          return false;
+        }
+      }
+      stop() {
+        if (this.micStream) {
+          this.micStream.getTracks().forEach(t => t.stop());
+          this.micStream = null;
+        }
+        if (this.audioCtx) {
+          this.audioCtx.close();
+          this.audioCtx = null;
+        }
+        this.isActive = false;
+      }
+      getLivePitch() {
+        if (!this.isActive || !this.analyser) return { pitch: null, rms: 0, clarity: 0 };
+        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+        this.analyser.getFloatTimeDomainData(this.buffer);
+        let sumSquares = 0;
+        for (let i = 0; i < this.buffer.length; i++) sumSquares += this.buffer[i] * this.buffer[i];
+        const rms = Math.sqrt(sumSquares / this.buffer.length);
+
+        if (rms < 0.0025) {
+          if (this.historyPitches.length > 0) this.historyPitches.shift();
+          return { pitch: null, rms, clarity: 0 };
+        }
+
+        const sampleRate = this.audioCtx.sampleRate;
+        const minPeriod = Math.floor(sampleRate / 1150);
+        const maxPeriod = Math.floor(sampleRate / 58);
+        const yinBuffer = new Float32Array(maxPeriod);
+        yinBuffer[0] = 1;
+        let runningSum = 0;
+        const windowSize = Math.min(1024, this.buffer.length - maxPeriod);
+
+        for (let tau = 1; tau < maxPeriod; tau++) {
+          let delta = 0;
+          for (let i = 0; i < windowSize; i++) {
+            const diff = this.buffer[i] - this.buffer[i + tau];
+            delta += diff * diff;
+          }
+          runningSum += delta;
+          yinBuffer[tau] = delta * tau / (runningSum + 1e-6);
+        }
+
+        let tauEstimate = -1;
+        for (let tau = minPeriod; tau < maxPeriod; tau++) {
+          if (yinBuffer[tau] < 0.15) {
+            while (tau + 1 < maxPeriod && yinBuffer[tau + 1] < yinBuffer[tau]) tau++;
+            tauEstimate = tau;
+            break;
+          }
+        }
+
+        if (tauEstimate === -1) {
+          let minVal = 999;
+          for (let tau = minPeriod; tau < maxPeriod; tau++) {
+            if (yinBuffer[tau] < minVal) { minVal = yinBuffer[tau]; tauEstimate = tau; }
+          }
+          if (minVal > 0.42) return { pitch: null, rms, clarity: 0 };
+        }
+
+        let betterTau = tauEstimate;
+        if (tauEstimate > 1 && tauEstimate < maxPeriod - 1) {
+          const s0 = yinBuffer[tauEstimate - 1];
+          const s1 = yinBuffer[tauEstimate];
+          const s2 = yinBuffer[tauEstimate + 1];
+          betterTau = tauEstimate + (s2 - s0) / (2 * (2 * s1 - s2 - s0) + 1e-6);
+        }
+
+        const frequency = sampleRate / betterTau;
+        const rawMidi = 69 + 12 * Math.log2(frequency / 440);
+        if (rawMidi < 30 || rawMidi > 90) return { pitch: null, rms, clarity: 0 };
+
+        if (this.historyPitches.length > 0) {
+          const lastMidi = this.historyPitches[this.historyPitches.length - 1];
+          const diff = rawMidi - lastMidi;
+          if (Math.abs(Math.abs(diff) - 12) < 1.2) {
+            return { pitch: lastMidi, rms, clarity: 1 - yinBuffer[tauEstimate] };
+          }
+          if (Math.abs(diff) > 8) this.historyPitches = [];
+        }
+
+        this.historyPitches.push(rawMidi);
+        if (this.historyPitches.length > 5) this.historyPitches.shift();
+        const sorted = [...this.historyPitches].sort((a, b) => a - b);
+        const medianMidi = sorted[Math.floor(sorted.length / 2)];
+
+        return { pitch: medianMidi, rms, clarity: 1 - yinBuffer[tauEstimate] };
+      }
+    }
+
+    const PRESET_SONGS = {
+      twinkle: [
+        {
+          id: 0, name: "主旋律 (Lead Vocal)", instrument: "piano", role: "lead", volume: 1.0, isMuted: false, isSolo: false,
+          notes: [
+            { midi: 60, start: 0.5, dur: 0.6 }, { midi: 60, start: 1.2, dur: 0.6 },
+            { midi: 67, start: 1.9, dur: 0.6 }, { midi: 67, start: 2.6, dur: 0.6 },
+            { midi: 69, start: 3.3, dur: 0.6 }, { midi: 69, start: 4.0, dur: 0.6 },
+            { midi: 67, start: 4.7, dur: 1.2 },
+            { midi: 65, start: 6.2, dur: 0.6 }, { midi: 65, start: 6.9, dur: 0.6 },
+            { midi: 64, start: 7.6, dur: 0.6 }, { midi: 64, start: 8.3, dur: 0.6 },
+            { midi: 62, start: 9.0, dur: 0.6 }, { midi: 62, start: 9.7, dur: 0.6 },
+            { midi: 60, start: 10.4, dur: 1.2 }
+          ]
+        },
+        {
+          id: 1, name: "二部和聲 (Harmony)", instrument: "strings", role: "harmony", volume: 0.85, isMuted: false, isSolo: false,
+          notes: [
+            { midi: 64, start: 0.5, dur: 0.6 }, { midi: 64, start: 1.2, dur: 0.6 },
+            { midi: 64, start: 1.9, dur: 0.6 }, { midi: 64, start: 2.6, dur: 0.6 },
+            { midi: 65, start: 3.3, dur: 0.6 }, { midi: 65, start: 4.0, dur: 0.6 },
+            { midi: 64, start: 4.7, dur: 1.2 },
+            { midi: 62, start: 6.2, dur: 0.6 }, { midi: 62, start: 6.9, dur: 0.6 },
+            { midi: 60, start: 7.6, dur: 0.6 }, { midi: 60, start: 8.3, dur: 0.6 },
+            { midi: 59, start: 9.0, dur: 0.6 }, { midi: 59, start: 9.7, dur: 0.6 },
+            { midi: 55, start: 10.4, dur: 1.2 }
+          ]
+        },
+        {
+          id: 2, name: "貝斯與伴奏 (Bass)", instrument: "bass", role: "backing", volume: 0.9, isMuted: false, isSolo: false,
+          notes: [
+            { midi: 48, start: 0.5, dur: 1.3 }, { midi: 48, start: 1.9, dur: 1.3 },
+            { midi: 45, start: 3.3, dur: 1.3 }, { midi: 48, start: 4.7, dur: 1.3 },
+            { midi: 41, start: 6.2, dur: 1.3 }, { midi: 48, start: 7.6, dur: 1.3 },
+            { midi: 43, start: 9.0, dur: 1.3 }, { midi: 48, start: 10.4, dur: 1.5 }
+          ]
+        }
+      ],
+      ode: [
+        {
+          id: 0, name: "主唱 (Lead)", instrument: "piano", role: "lead", volume: 1.0, isMuted: false, isSolo: false,
+          notes: [
+            { midi: 64, start: 0.5, dur: 0.5 }, { midi: 64, start: 1.1, dur: 0.5 },
+            { midi: 65, start: 1.7, dur: 0.5 }, { midi: 67, start: 2.3, dur: 0.5 },
+            { midi: 67, start: 2.9, dur: 0.5 }, { midi: 65, start: 3.5, dur: 0.5 },
+            { midi: 64, start: 4.1, dur: 0.5 }, { midi: 62, start: 4.7, dur: 0.5 }
+          ]
+        }
+      ],
+      birthday: [
+        {
+          id: 0, name: "生日快樂 (Lead)", instrument: "piano", role: "lead", volume: 1.0, isMuted: false, isSolo: false,
+          notes: [
+            { midi: 60, start: 0.5, dur: 0.4 }, { midi: 60, start: 1.0, dur: 0.4 },
+            { midi: 62, start: 1.5, dur: 0.8 }, { midi: 60, start: 2.4, dur: 0.8 },
+            { midi: 65, start: 3.3, dur: 0.8 }, { midi: 64, start: 4.2, dur: 1.4 }
+          ]
+        }
+      ]
+    };
+
+    class GameEngine {
+      constructor() {
+        this.audio = new AudioEngine();
+        this.pitchEngine = new PitchDetectorEngine();
+
+        this.tracks = [];
+        this.currentTime = 0;
+        this.songDuration = 20;
+        this.isPlaying = false;
+        this.transpose = 0;
+        this.score = 0;
+        this.combo = 0;
+
+        this.playbackStartWallTime = 0;
+        this.playbackStartSongTime = 0;
+        this.scheduledNotes = new Set();
+
+        this.smoothedVocalMidi = null;
+        this.livePitchTrail = [];
+
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.timelineCanvas = document.getElementById('timelineCanvas');
+        this.timelineCtx = this.timelineCanvas ? this.timelineCanvas.getContext('2d') : null;
+
+        this.timelineContainer = document.getElementById('timelineContainer');
+        this.timelineTrack = document.getElementById('timelineTrack');
+        this.timelineProgress = document.getElementById('timelineProgress');
+        this.timelineThumb = document.getElementById('timelineThumb');
+        this.timelineStartLabel = document.getElementById('timelineStartLabel');
+        this.timelineEndLabel = document.getElementById('timelineEndLabel');
+
+        this.playPauseBtn = document.getElementById('playPauseBtn');
+        this.playIcon = document.getElementById('playIcon');
+        this.playText = document.getElementById('playText');
+        this.timeCurrent = document.getElementById('timeCurrent');
+        this.timeTotal = document.getElementById('timeTotal');
+
+        this.scoreDisplay = document.getElementById('scoreDisplay');
+        this.comboDisplay = document.getElementById('comboDisplay');
+        this.judgmentPopup = document.getElementById('judgmentPopup');
+        this.judgmentText = document.getElementById('judgmentText');
+        this.judgmentCents = document.getElementById('judgmentCents');
+
+        this.timelineWindowSec = 30;
+        this.timelineStartSec = 0;
+
+        this.initDOMEvents();
+        this.loadPreset('twinkle');
+        this.resize();
+
+        requestAnimationFrame(() => this.loop());
+      }
+
+      initDOMEvents() {
+        window.addEventListener('resize', () => this.resize());
+
+        const startMic = document.getElementById('startMicBtn');
+        if (startMic) {
+          startMic.addEventListener('click', async () => {
+            const ok = await this.pitchEngine.start();
+            if (ok) {
+              document.getElementById('micPromptOverlay').classList.add('opacity-0', 'pointer-events-none');
+              this.audio.init();
+            }
+          });
+        }
+
+        const micToggle = document.getElementById('micToggleBtn');
+        if (micToggle) {
+          micToggle.addEventListener('click', async () => {
+            this.audio.init();
+            if (this.pitchEngine.isActive) {
+              this.pitchEngine.stop();
+              document.getElementById('detectedPitchLabel').innerText = "--";
+            } else {
+              await this.pitchEngine.start();
+            }
+          });
+        }
+
+        if (this.playPauseBtn) this.playPauseBtn.addEventListener('click', () => this.togglePlay());
+        const rewindBtn = document.getElementById('rewindBtn');
+        if (rewindBtn) rewindBtn.addEventListener('click', () => this.seekTo(0));
+
+        const pedalBtn = document.getElementById('pedalToggleBtn');
+        if (pedalBtn) {
+          pedalBtn.addEventListener('click', () => {
+            this.audio.setSustainPedal(!this.audio.sustainPedalActive);
+          });
+        }
+
+        const transDown = document.getElementById('transposeDown');
+        if (transDown) transDown.addEventListener('click', () => this.setTranspose(this.transpose - 1));
+        const transUp = document.getElementById('transposeUp');
+        if (transUp) transUp.addEventListener('click', () => this.setTranspose(this.transpose + 1));
+
+        const leadMute = document.getElementById('leadMuteToggle');
+        if (leadMute) {
+          leadMute.addEventListener('click', () => {
+            this.audio.leadVocalMuted = !this.audio.leadVocalMuted;
+            const icon = document.getElementById('leadMuteIcon');
+            if (icon) icon.innerText = this.audio.leadVocalMuted ? "🔇" : "🔊";
+          });
+        }
+
+        const presetSel = document.getElementById('presetSelect');
+        if (presetSel) {
+          presetSel.addEventListener('change', (e) => {
+            this.loadPreset(e.target.value);
+          });
+        }
+
+        const midiInput = document.getElementById('midiFileInput');
+        if (midiInput) {
+          midiInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                try {
+                  const parsed = SimpleMidiParser.parse(ev.target.result);
+                  this.loadTracks(parsed);
+                  this.openTrackModal();
+                } catch (err) {
+                  console.error("MIDI 載入失敗:", err);
+                }
+              };
+              reader.readAsArrayBuffer(file);
+            }
+          });
+        }
+
+        window.addEventListener('keydown', (e) => {
+          if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+            e.preventDefault();
+            this.togglePlay();
+          } else if ((e.key === 's' || e.key === 'S') && e.target.tagName !== 'INPUT') {
+            e.preventDefault();
+            this.audio.setSustainPedal(!this.audio.sustainPedalActive);
+          }
+        });
+
+        let isScrubbing = false;
+        const handleScrub = (clientX) => {
+          if (!this.timelineTrack) return;
+          const rect = this.timelineTrack.getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+          const targetTime = this.timelineStartSec + ratio * this.timelineWindowSec;
+          this.seekTo(targetTime);
+        };
+
+        if (this.timelineContainer) {
+          this.timelineContainer.addEventListener('mousedown', (e) => {
+            isScrubbing = true;
+            handleScrub(e.clientX);
+          });
+        }
+        window.addEventListener('mousemove', (e) => {
+          if (isScrubbing) handleScrub(e.clientX);
+        });
+        window.addEventListener('mouseup', () => {
+          isScrubbing = false;
+        });
+
+        window.addEventListener('wheel', (e) => {
+          if (e.target.closest('#mixerModal') || e.target.closest('#trackModal')) return;
+
+          if (e.ctrlKey) {
+            e.preventDefault();
+            const zoomFactor = Math.exp(e.deltaY * 0.01);
+            const minWindow = 6;
+            const maxWindow = Math.max(16, this.songDuration);
+            const anchorTime = this.currentTime;
+            const currentRatio = this.timelineWindowSec > 0 
+              ? (anchorTime - this.timelineStartSec) / this.timelineWindowSec 
+              : 0.35;
+
+            this.timelineWindowSec = Math.max(minWindow, Math.min(maxWindow, this.timelineWindowSec * zoomFactor));
+            this.timelineStartSec = Math.max(0, Math.min(this.songDuration - this.timelineWindowSec, anchorTime - currentRatio * this.timelineWindowSec));
+
+            this.updateTimelineUI();
+            this.renderTimelineMinimap();
+            return;
+          }
+
+          let delta = 0;
+          if (Math.abs(e.deltaX) > 0.5) delta = e.deltaX;
+          else if (e.shiftKey && Math.abs(e.deltaY) > 0.5) delta = e.deltaY;
+
+          if (Math.abs(delta) > 0.5) {
+            e.preventDefault();
+            const seekDeltaSeconds = (delta / 120) * (this.timelineWindowSec / 25);
+            this.seekTo(this.currentTime + seekDeltaSeconds);
+          }
+        }, { passive: false });
+
+        let initialTouchDistance = null;
+        let initialTouchWindow = null;
+
+        if (this.timelineContainer) {
+          this.timelineContainer.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              initialTouchDistance = Math.hypot(dx, dy);
+              initialTouchWindow = this.timelineWindowSec;
+            }
+          }, { passive: true });
+
+          this.timelineContainer.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2 && initialTouchDistance) {
+              e.preventDefault();
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              const currentDist = Math.hypot(dx, dy);
+              const scale = initialTouchDistance / Math.max(10, currentDist);
+
+              const minWindow = 6;
+              const maxWindow = Math.max(16, this.songDuration);
+              this.timelineWindowSec = Math.max(minWindow, Math.min(maxWindow, initialTouchWindow * scale));
+              this.updateTimelineUI();
+              this.renderTimelineMinimap();
+            }
+          }, { passive: false });
+
+          this.timelineContainer.addEventListener('touchend', () => { initialTouchDistance = null; });
+        }
+
+        const openTrackBtn = document.getElementById('openTrackModalBtn');
+        if (openTrackBtn) openTrackBtn.addEventListener('click', () => this.openTrackModal());
+
+        const closeTrackBtn = document.getElementById('closeTrackModalBtn');
+        if (closeTrackBtn) closeTrackBtn.addEventListener('click', () => this.closeTrackModal());
+
+        const confirmTracksBtn = document.getElementById('confirmTracksBtn');
+        if (confirmTracksBtn) confirmTracksBtn.addEventListener('click', () => {
+          this.applyTrackRoles();
+          this.closeTrackModal();
+        });
+
+        const openMixerBtn = document.getElementById('openMixerModalBtn');
+        if (openMixerBtn) openMixerBtn.addEventListener('click', () => this.openMixerModal());
+
+        const closeMixerBtn = document.getElementById('closeMixerModalBtn');
+        if (closeMixerBtn) closeMixerBtn.addEventListener('click', () => this.closeMixerModal());
+
+        const resetMixerBtn = document.getElementById('resetMixerBtn');
+        if (resetMixerBtn) resetMixerBtn.addEventListener('click', () => this.resetMixer());
+      }
+
+      resize() {
+        if (!this.canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const rect = this.canvas.getBoundingClientRect();
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        this.ctx.scale(dpr, dpr);
+
+        if (this.timelineCanvas && this.timelineContainer) {
+          const tRect = this.timelineContainer.getBoundingClientRect();
+          this.timelineCanvas.width = tRect.width * dpr;
+          this.timelineCanvas.height = tRect.height * dpr;
+          this.timelineCtx.scale(dpr, dpr);
+          this.renderTimelineMinimap();
+        }
+      }
+
+      loadPreset(key) {
+        if (!PRESET_SONGS[key]) return;
+        const cloned = JSON.parse(JSON.stringify(PRESET_SONGS[key]));
+        this.loadTracks(cloned);
+      }
+
+      loadTracks(tracks) {
+        this.tracks = tracks;
+        this.transpose = 0;
+        const transVal = document.getElementById('transposeVal');
+        if (transVal) transVal.innerText = "0";
+
+        let maxTime = 10;
+        for (const tr of this.tracks) {
+          for (const n of tr.notes) {
+            if (n.start + n.dur > maxTime) maxTime = n.start + n.dur;
+          }
+        }
+        this.songDuration = maxTime + 2.5;
+        if (this.timeTotal) this.timeTotal.innerText = this.formatTime(this.songDuration);
+        this.timelineWindowSec = Math.max(16, this.songDuration * 0.55);
+
+        this.seekTo(0);
+        this.updateTimelineWindow();
+        this.renderTimelineMinimap();
+      }
+
+      setTranspose(val) {
+        this.transpose = Math.max(-12, Math.min(12, val));
+        const transVal = document.getElementById('transposeVal');
+        if (transVal) transVal.innerText = (this.transpose > 0 ? "+" : "") + this.transpose;
+        this.renderTimelineMinimap();
+      }
+
+      togglePlay() {
+        this.audio.init();
+        if (this.isPlaying) this.pause();
+        else this.play();
+      }
+
+      play() {
+        this.isPlaying = true;
+        this.playbackStartWallTime = performance.now();
+        this.playbackStartSongTime = this.currentTime;
+        if (this.playIcon) this.playIcon.innerText = "⏸";
+        if (this.playText) this.playText.innerText = "暫停 (Space)";
+      }
+
+      pause() {
+        this.isPlaying = false;
+        if (this.playIcon) this.playIcon.innerText = "▶";
+        if (this.playText) this.playText.innerText = "播放 (Space)";
+      }
+
+      seekTo(targetTime) {
+        this.currentTime = Math.max(0, Math.min(targetTime, this.songDuration));
+        this.playbackStartSongTime = this.currentTime;
+        this.playbackStartWallTime = performance.now();
+        
+        if (this.scheduledNotes) {
+          const nextScheduled = new Set();
+          this.tracks.forEach(track => {
+            track.notes.forEach((note, noteIdx) => {
+              const noteKey = `${track.id}_${noteIdx}`;
+              if (note.start < this.currentTime && this.scheduledNotes.has(noteKey)) {
+                nextScheduled.add(noteKey);
+              }
+            });
+          });
+          this.scheduledNotes = nextScheduled;
+        }
+
+        if (this.audio && this.audio.ctx && this.audio.ctx.state === 'suspended' && this.isPlaying) {
+          this.audio.ctx.resume();
+        }
+
+        this.livePitchTrail = [];
+        this.updateTimelineUI();
+        this.renderTimelineMinimap();
+      }
+
+      evaluateSinging(userMidi) {
+        if (userMidi === null) {
+          if (this.judgmentPopup) this.judgmentPopup.style.opacity = '0';
+          return null;
+        }
+
+        const activeSingableNotes = [];
+        this.tracks.forEach(tr => {
+          if (tr.role === 'lead' || tr.role === 'harmony') {
+            tr.notes.forEach(n => {
+              const effMidi = n.midi + this.transpose;
+              if (this.currentTime >= n.start - 0.15 && this.currentTime <= n.start + n.dur + 0.15) {
+                activeSingableNotes.push({ midi: effMidi, role: tr.role, trackName: tr.name });
+              }
+            });
+          }
+        });
+
+        if (activeSingableNotes.length === 0) {
+          if (this.judgmentPopup) this.judgmentPopup.style.opacity = '0';
+          return { status: 'SINGING_IDLE', userMidi };
+        }
+
+        let minDiffCents = 9999;
+        let bestTargetMidi = activeSingableNotes[0].midi;
+        let bestRole = activeSingableNotes[0].role;
+
+        activeSingableNotes.forEach(target => {
+          const rawDiff = userMidi - target.midi;
+          const octaves = Math.round(rawDiff / 12);
+          const normalizedDiff = rawDiff - (octaves * 12);
+          const cents = normalizedDiff * 100;
+
+          if (Math.abs(cents) < Math.abs(minDiffCents)) {
+            minDiffCents = cents;
+            bestTargetMidi = target.midi;
+            bestRole = target.role;
+          }
+        });
+
+        let status = 'MISS';
+        let displayText = 'MISS';
+        let colorClass = 'text-rose-500';
+
+        if (Math.abs(minDiffCents) <= 40) {
+          status = 'PERFECT';
+          displayText = 'PERFECT!';
+          colorClass = 'text-cyan-400';
+          this.score += 15;
+          this.combo += 1;
+        } else if (Math.abs(minDiffCents) <= 85) {
+          status = 'GOOD';
+          displayText = 'GOOD';
+          colorClass = 'text-emerald-400';
+          this.score += 8;
+          this.combo += 1;
+        } else if (minDiffCents > 85) {
+          status = 'SHARP';
+          displayText = '太高 ↑ TOO SHARP';
+          colorClass = 'text-rose-400';
+          this.combo = 0;
+        } else {
+          status = 'FLAT';
+          displayText = '太低 ↓ TOO FLAT';
+          colorClass = 'text-sky-400';
+          this.combo = 0;
+        }
+
+        if (this.scoreDisplay) this.scoreDisplay.innerText = this.score;
+        if (this.comboDisplay) this.comboDisplay.innerText = this.combo;
+
+        if (this.judgmentText) {
+          this.judgmentText.innerText = displayText;
+          this.judgmentText.className = `text-xl font-black italic tracking-wider drop-shadow-[0_0_15px_currentColor] ${colorClass}`;
+        }
+        const sign = minDiffCents >= 0 ? "+" : "";
+        if (this.judgmentCents) {
+          this.judgmentCents.innerText = `${sign}${Math.round(minDiffCents)} cents (${bestRole === 'lead' ? '主旋律' : '和聲'})`;
+        }
+        if (this.judgmentPopup) this.judgmentPopup.style.opacity = '1';
+
+        return { status, cents: minDiffCents, targetMidi: bestTargetMidi, role: bestRole };
+      }
+
+      updateTimelineWindow() {
+        if (!this.songDuration) return;
+        let idealStart = this.currentTime - this.timelineWindowSec * 0.35;
+        const maxStart = Math.max(0, this.songDuration - this.timelineWindowSec);
+        this.timelineStartSec = Math.max(0, Math.min(idealStart, maxStart));
+
+        const windowEndSec = Math.min(this.songDuration, this.timelineStartSec + this.timelineWindowSec);
+        if (this.timelineStartLabel) this.timelineStartLabel.innerText = this.formatTime(this.timelineStartSec);
+        if (this.timelineEndLabel) this.timelineEndLabel.innerText = this.formatTime(windowEndSec);
+      }
+
+      renderTimelineMinimap() {
+        if (!this.timelineCtx || !this.timelineCanvas || !this.songDuration) return;
+        const cvs = this.timelineCanvas;
+        const ctx = this.timelineCtx;
+        const rect = cvs.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
+        ctx.fillRect(0, 0, w, h);
+
+        const totalPitchRange = MAX_PITCH_DISPLAY - MIN_PITCH_DISPLAY;
+        const winStart = this.timelineStartSec;
+        const winSpan = this.timelineWindowSec;
+
+        const timeToX = (sec) => ((sec - winStart) / winSpan) * w;
+        const midiToMiniY = (m) => {
+          const clamped = Math.max(MIN_PITCH_DISPLAY, Math.min(MAX_PITCH_DISPLAY, m));
+          return h - 8 - ((clamped - MIN_PITCH_DISPLAY) / totalPitchRange) * (h - 16);
+        };
+
+        ctx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
+        ctx.lineWidth = 1;
+        for (let midi = MIN_PITCH_DISPLAY; midi <= MAX_PITCH_DISPLAY; midi += 12) {
+          const ly = midiToMiniY(midi);
+          ctx.beginPath();
+          ctx.moveTo(0, ly);
+          ctx.lineTo(w, ly);
+          ctx.stroke();
+        }
+
+        this.tracks.forEach(track => {
+          if (track.role === 'backing') {
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.3)';
+            track.notes.forEach(n => {
+              if (n.start + n.dur < winStart || n.start > winStart + winSpan) return;
+              const x = timeToX(n.start);
+              const nw = Math.max(3, (n.dur / winSpan) * w);
+              const y = midiToMiniY(n.midi + this.transpose);
+              ctx.fillRect(x, y - 2, nw, 4);
+            });
+          }
+        });
+
+        this.tracks.forEach(track => {
+          if (track.role === 'harmony') {
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.75)';
+            track.notes.forEach(n => {
+              if (n.start + n.dur < winStart || n.start > winStart + winSpan) return;
+              const x = timeToX(n.start);
+              const nw = Math.max(4, (n.dur / winSpan) * w);
+              const y = midiToMiniY(n.midi + this.transpose);
+              ctx.fillRect(x, y - 2.5, nw, 5);
+            });
+          }
+        });
+
+        this.tracks.forEach(track => {
+          if (track.role === 'lead') {
+            track.notes.forEach((n, idx) => {
+              if (n.start + n.dur < winStart || n.start > winStart + winSpan) return;
+              const x = timeToX(n.start);
+              const nw = Math.max(5, (n.dur / winSpan) * w);
+              const effMidi = n.midi + this.transpose;
+              const y = midiToMiniY(effMidi);
+
+              ctx.fillStyle = '#ec4899';
+              ctx.shadowColor = 'rgba(236, 72, 153, 0.6)';
+              ctx.shadowBlur = 6;
+              ctx.beginPath();
+              ctx.roundRect(x, y - 4, nw, 8, 3);
+              ctx.fill();
+              ctx.shadowBlur = 0;
+
+              if (nw >= 14 || idx % 2 === 0) {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 9px monospace';
+                ctx.fillText(midiToName(effMidi), x + 2, y - 5);
+              }
+            });
+          }
+        });
+      }
+
+      updateTimelineUI() {
+        if (!this.timelineProgress || !this.timelineThumb || !this.songDuration) return;
+        const prevStart = this.timelineStartSec;
+        this.updateTimelineWindow();
+
+        if (Math.abs(this.timelineStartSec - prevStart) > 0.05) this.renderTimelineMinimap();
+
+        const winProgress = (this.currentTime - this.timelineStartSec) / this.timelineWindowSec;
+        const clampedRatio = Math.max(0, Math.min(1, winProgress));
+        const percent = (clampedRatio * 100).toFixed(2) + '%';
+
+        this.timelineProgress.style.width = percent;
+        this.timelineThumb.style.left = percent;
+      }
+
+      formatTime(sec) {
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }
+
+      loop() {
+        if (this.isPlaying) {
+          const elapsedSec = (performance.now() - this.playbackStartWallTime) / 1000;
+          this.currentTime = this.playbackStartSongTime + elapsedSec;
+
+          if (this.currentTime >= this.songDuration) {
+            this.pause();
+            this.seekTo(0);
+          }
+        }
+
+        if (this.timeCurrent) this.timeCurrent.innerText = this.formatTime(this.currentTime);
+        this.updateTimelineUI();
+
+        if (this.isPlaying) {
+          this.tracks.forEach(track => {
+            track.notes.forEach((note, noteIdx) => {
+              const noteKey = `${track.id}_${noteIdx}`;
+              if (this.currentTime >= note.start && !this.scheduledNotes.has(noteKey)) {
+                this.audio.playNote(track, note.midi + this.transpose, note.dur, note.vel || 90);
+                this.scheduledNotes.add(noteKey);
+              }
+            });
+          });
+        }
+
+        const micData = this.pitchEngine.getLivePitch();
+        const micBar = document.getElementById('micLevelBar');
+        const pitchLabel = document.getElementById('detectedPitchLabel');
+
+        if (micBar) micBar.style.width = Math.min(100, micData.rms * 600) + '%';
+        if (pitchLabel) {
+          pitchLabel.innerText = micData.pitch !== null ? midiToName(micData.pitch) : "--";
+        }
+
+        const judgment = this.evaluateSinging(micData.pitch);
+        this.render(micData, judgment);
+
+        requestAnimationFrame(() => this.loop());
+      }
+
+      render(micData, judgment) {
+        const ctx = this.ctx;
+        const rect = this.canvas.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        const leftRulerWidth = 54;
+        const cursorX = leftRulerWidth + (w - leftRulerWidth) * 0.28;
+        const pxPerSec = (w - leftRulerWidth) / 4.2;
+
+        const totalSemitones = MAX_PITCH_DISPLAY - MIN_PITCH_DISPLAY;
+        const highwayTopOffset = 64;
+        const playableHeight = h - highwayTopOffset;
+
+        const pitchToHighwayY = (midi) => {
+          return highwayTopOffset + (playableHeight - ((midi - MIN_PITCH_DISPLAY) / totalSemitones) * playableHeight);
+        };
+        const highwayNoteHeight = playableHeight / totalSemitones;
+
+        for (let midi = MIN_PITCH_DISPLAY; midi <= MAX_PITCH_DISPLAY; midi++) {
+          const y = pitchToHighwayY(midi + 0.5);
+          const isBlack = [1, 3, 6, 8, 10].includes(((midi % 12) + 12) % 12);
+          const isC = ((midi % 12) + 12) % 12 === 0;
+
+          ctx.fillStyle = isBlack ? 'rgba(15, 23, 42, 0.45)' : 'rgba(30, 41, 59, 0.25)';
+          ctx.fillRect(leftRulerWidth, y, w - leftRulerWidth, highwayNoteHeight);
+
+          ctx.strokeStyle = isC ? 'rgba(56, 189, 248, 0.35)' : 'rgba(51, 65, 85, 0.2)';
+          ctx.lineWidth = isC ? 1.5 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(leftRulerWidth, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+        }
+
+        this.tracks.forEach((track, tIdx) => {
+          if (track.role === 'mute') return;
+          const isLead = track.role === 'lead';
+          const isHarmony = track.role === 'harmony';
+
+          track.notes.forEach(note => {
+            const startX = cursorX + (note.start - this.currentTime) * pxPerSec;
+            const noteW = note.dur * pxPerSec;
+
+            if (startX + noteW < leftRulerWidth || startX > w) return;
+
+            const effectiveMidi = note.midi + this.transpose;
+            const noteY = pitchToHighwayY(effectiveMidi);
+            const clampedH = Math.max(6, highwayNoteHeight - 2);
+
+            if (isLead) {
+              const grad = ctx.createLinearGradient(startX, 0, startX + noteW, 0);
+              grad.addColorStop(0, '#ec4899');
+              grad.addColorStop(1, '#f43f5e');
+
+              ctx.fillStyle = grad;
+              ctx.shadowColor = 'rgba(236, 72, 153, 0.6)';
+              ctx.shadowBlur = 14;
+
+              ctx.beginPath();
+              ctx.roundRect(startX, noteY - clampedH / 2, Math.max(4, noteW - 2), clampedH, 4);
+              ctx.fill();
+              ctx.shadowBlur = 0;
+
+              if (note.lyric) {
+                ctx.save();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.shadowColor = 'rgba(0,0,0,0.85)';
+                ctx.shadowBlur = 4;
+                ctx.fillText(note.lyric, startX + 4, noteY - clampedH / 2 - 4);
+                ctx.restore();
+              } else if (noteW > 28) {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 10px monospace';
+                ctx.fillText(midiToName(effectiveMidi), startX + 5, noteY + 3);
+              }
+            } else if (isHarmony) {
+              ctx.save();
+              ctx.fillStyle = tIdx % 2 === 1 ? 'rgba(245, 158, 11, 0.42)' : 'rgba(16, 185, 129, 0.42)';
+              ctx.strokeStyle = tIdx % 2 === 1 ? 'rgba(251, 191, 36, 0.75)' : 'rgba(52, 211, 153, 0.75)';
+              ctx.lineWidth = 1.2;
+
+              ctx.beginPath();
+              ctx.roundRect(startX, noteY - clampedH / 2, Math.max(4, noteW - 2), clampedH, 4);
+              ctx.fill();
+              ctx.stroke();
+
+              if (noteW > 34) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+                ctx.font = 'bold 9px monospace';
+                ctx.fillText(`P${tIdx + 1}:${midiToName(effectiveMidi)}`, startX + 4, noteY + 3);
+              }
+              ctx.restore();
+            } else {
+              ctx.fillStyle = 'rgba(100, 116, 139, 0.18)';
+              ctx.beginPath();
+              ctx.roundRect(startX, noteY - clampedH / 4, Math.max(3, noteW - 2), clampedH / 2, 2);
+              ctx.fill();
+            }
+          });
+        });
+
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(cursorX, highwayTopOffset);
+        ctx.lineTo(cursorX, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const nowMs = performance.now();
+        const activeSongTime = this.currentTime;
+
+        if (micData.pitch !== null) {
+          if (this.smoothedVocalMidi === null) {
+            this.smoothedVocalMidi = micData.pitch;
+          } else {
+            const pitchDelta = micData.pitch - this.smoothedVocalMidi;
+            if (Math.abs(pitchDelta) > 8) {
+              this.smoothedVocalMidi = micData.pitch;
+            } else {
+              const smoothingFactor = Math.abs(pitchDelta) < 0.35 ? 0.25 : 0.65;
+              this.smoothedVocalMidi += pitchDelta * smoothingFactor;
+            }
+          }
+
+          const vocalY = pitchToHighwayY(this.smoothedVocalMidi);
+          const isAccurate = judgment && (judgment.status === 'PERFECT' || judgment.status === 'GOOD');
+
+          this.livePitchTrail.push({
+            songTime: activeSongTime,
+            wallTime: nowMs,
+            midi: this.smoothedVocalMidi,
+            y: vocalY,
+            accurate: isAccurate,
+            status: judgment ? judgment.status : null
+          });
+        } else {
+          this.smoothedVocalMidi = null;
+          if (this.livePitchTrail.length > 0 && this.livePitchTrail[this.livePitchTrail.length - 1].midi !== null) {
+            this.livePitchTrail.push({
+              songTime: activeSongTime,
+              wallTime: nowMs,
+              midi: null,
+              y: null
+            });
+          }
+        }
+
+        if (this.isPlaying) {
+          this.livePitchTrail = this.livePitchTrail.filter(p => (this.currentTime - p.songTime) < 6.5);
+        } else {
+          this.livePitchTrail = this.livePitchTrail.filter(p => (nowMs - p.wallTime) < 6500);
+        }
+
+        if (this.livePitchTrail.length > 1) {
+          ctx.lineWidth = 3.5;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+
+          for (let i = 1; i < this.livePitchTrail.length; i++) {
+            const p1 = this.livePitchTrail[i - 1];
+            const p2 = this.livePitchTrail[i];
+
+            if (p1.midi === null || p2.midi === null) continue;
+
+            let x1, x2;
+            if (this.isPlaying) {
+              x1 = cursorX - (this.currentTime - p1.songTime) * pxPerSec;
+              x2 = cursorX - (this.currentTime - p2.songTime) * pxPerSec;
+            } else {
+              x1 = cursorX - ((nowMs - p1.wallTime) / 1000) * (pxPerSec * 0.6);
+              x2 = cursorX - ((nowMs - p2.wallTime) / 1000) * (pxPerSec * 0.6);
+            }
+
+            if (x2 < leftRulerWidth || x1 > w) continue;
+
+            if (Math.abs(x2 - x1) < 40 && Math.abs(p2.y - p1.y) < playableHeight * 0.45) {
+              ctx.beginPath();
+              ctx.moveTo(x1, p1.y);
+              ctx.lineTo(x2, p2.y);
+
+              if (p2.accurate) {
+                ctx.strokeStyle = '#22c55e';
+                ctx.shadowColor = 'rgba(34, 197, 94, 0.6)';
+                ctx.shadowBlur = 8;
+              } else if (p2.status === 'SHARP') {
+                ctx.strokeStyle = '#f43f5e';
+                ctx.shadowColor = 'rgba(244, 63, 94, 0.6)';
+                ctx.shadowBlur = 8;
+              } else if (p2.status === 'FLAT') {
+                ctx.strokeStyle = '#38bdf8';
+                ctx.shadowColor = 'rgba(56, 189, 248, 0.6)';
+                ctx.shadowBlur = 8;
+              } else {
+                ctx.strokeStyle = '#10b981';
+                ctx.shadowBlur = 0;
+              }
+              ctx.stroke();
+            }
+          }
+          ctx.shadowBlur = 0;
+        }
+
+        if (micData.pitch !== null && this.smoothedVocalMidi !== null) {
+          const currentVocalY = pitchToHighwayY(this.smoothedVocalMidi);
+
+          ctx.strokeStyle = 'rgba(34, 197, 94, 0.35)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2, 4]);
+          ctx.beginPath();
+          ctx.moveTo(leftRulerWidth, currentVocalY);
+          ctx.lineTo(w, currentVocalY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.save();
+          ctx.shadowColor = judgment && judgment.status === 'PERFECT' ? '#06b6d4' : (judgment && judgment.status === 'SHARP' ? '#f43f5e' : '#22c55e');
+          ctx.shadowBlur = 20;
+
+          ctx.fillStyle = ctx.shadowColor;
+          ctx.beginPath();
+          ctx.arc(cursorX, currentVocalY, 8, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(cursorX, currentVocalY, 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          let currentLyric = "";
+          this.tracks.forEach(tr => {
+            if (tr.role === 'lead') {
+              tr.notes.forEach(n => {
+                if (n.lyric && this.currentTime >= n.start - 0.05 && this.currentTime <= n.start + n.dur + 0.1) {
+                  currentLyric = n.lyric;
+                }
+              });
+            }
+          });
+
+          if (currentLyric) {
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#fdf2f8';
+            ctx.shadowColor = 'rgba(236, 72, 153, 0.9)';
+            ctx.shadowBlur = 10;
+            ctx.fillText(currentLyric, cursorX, currentVocalY - 14);
+            ctx.textAlign = 'left';
+          }
+
+          if (judgment && judgment.targetMidi) {
+            const targetY = pitchToHighwayY(judgment.targetMidi);
+            ctx.strokeStyle = judgment.cents > 0 ? 'rgba(244, 63, 94, 0.8)' : 'rgba(56, 189, 248, 0.8)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(cursorX + 12, currentVocalY);
+            ctx.lineTo(cursorX + 12, targetY);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, highwayTopOffset, leftRulerWidth, playableHeight);
+
+        ctx.strokeStyle = 'rgba(51, 65, 85, 0.8)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(leftRulerWidth, highwayTopOffset);
+        ctx.lineTo(leftRulerWidth, h);
+        ctx.stroke();
+
+        for (let midi = MIN_PITCH_DISPLAY; midi <= MAX_PITCH_DISPLAY; midi++) {
+          const y = pitchToHighwayY(midi);
+          const isC = ((midi % 12) + 12) % 12 === 0;
+          const isA = ((midi % 12) + 12) % 12 === 9;
+
+          if (isC) {
+            ctx.fillStyle = '#38bdf8';
+            ctx.font = 'bold 11px monospace';
+            ctx.fillText(midiToName(midi), 12, y + 4);
+
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(leftRulerWidth - 10, y);
+            ctx.lineTo(leftRulerWidth, y);
+            ctx.stroke();
+          } else if (isA) {
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '9px monospace';
+            ctx.fillText(midiToName(midi), 16, y + 3);
+          }
+        }
+      }
+
+      openTrackModal() {
+        const container = document.getElementById('trackListContainer');
+        if (!container) return;
+        container.innerHTML = '';
+
+        this.tracks.forEach(track => {
+          const card = document.createElement('div');
+          card.className = "flex items-center justify-between p-3.5 bg-slate-800/80 rounded-xl border border-slate-700/80";
+          card.innerHTML = `
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-xs font-bold font-mono text-pink-400">
+                #${track.id + 1}
+              </div>
+              <div>
+                <div class="text-xs font-bold text-white">${track.name}</div>
+                <div class="text-[10px] text-slate-400 font-mono">${track.notes.length} 個音符 · 樂器: ${track.instrument}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <select class="track-role-select bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-pink-500" data-track-id="${track.id}">
+                <option value="lead" ${track.role === 'lead' ? 'selected' : ''}>🎤 主旋律 (不透明·主判定)</option>
+                <option value="harmony" ${track.role === 'harmony' ? 'selected' : ''}>✨ 和聲 (半透明·副判定)</option>
+                <option value="backing" ${track.role === 'backing' ? 'selected' : ''}>🎹 伴奏樂器 (純發音背景)</option>
+                <option value="mute" ${track.role === 'mute' ? 'selected' : ''}>🔇 靜音/隱藏</option>
+              </select>
+            </div>
+          `;
+          container.appendChild(card);
+        });
+
+        const modal = document.getElementById('trackModal');
+        if (modal) modal.classList.remove('hidden');
+      }
+
+      closeTrackModal() {
+        const modal = document.getElementById('trackModal');
+        if (modal) modal.classList.add('hidden');
+      }
+
+      applyTrackRoles() {
+        const selects = document.querySelectorAll('.track-role-select');
+        selects.forEach(sel => {
+          const tid = parseInt(sel.getAttribute('data-track-id'));
+          const track = this.tracks.find(t => t.id === tid);
+          if (track) track.role = sel.value;
+        });
+        this.renderTimelineMinimap();
+      }
+
+      openMixerModal() {
+        const container = document.getElementById('mixerListContainer');
+        if (!container) return;
+        container.innerHTML = '';
+
+        this.tracks.forEach(track => {
+          const row = document.createElement('div');
+          row.className = "flex items-center justify-between p-3.5 bg-slate-800/80 rounded-xl border border-slate-700/80 gap-4";
+          row.innerHTML = `
+            <div class="w-36 flex-shrink-0">
+              <div class="text-xs font-bold text-white truncate">${track.name}</div>
+              <div class="text-[10px] text-cyan-400 font-mono">${track.role.toUpperCase()}</div>
+            </div>
+
+            <select class="inst-select bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg px-2 py-1.5" data-track-id="${track.id}">
+              <option value="piano" ${track.instrument === 'piano' ? 'selected' : ''}>原聲大三角鋼琴</option>
+              <option value="strings" ${track.instrument === 'strings' ? 'selected' : ''}>管弦樂弦樂組</option>
+              <option value="bass" ${track.instrument === 'bass' ? 'selected' : ''}>電貝斯 (Bass)</option>
+              <option value="guitar" ${track.instrument === 'guitar' ? 'selected' : ''}>原聲清音吉他</option>
+            </select>
+
+            <div class="flex-1 flex items-center gap-3">
+              <input type="range" min="0" max="100" value="${Math.round(track.volume * 100)}" class="vol-slider w-full accent-pink-500 cursor-pointer" data-track-id="${track.id}">
+              <span class="vol-val text-[11px] font-mono text-slate-300 w-10 text-right">${Math.round(track.volume * 100)}%</span>
+            </div>
+
+            <button class="mute-btn px-2.5 py-1 text-xs font-bold rounded-lg border ${track.isMuted ? 'bg-rose-500 text-white border-rose-400' : 'bg-slate-700 text-slate-300 border-slate-600'}" data-track-id="${track.id}">
+              M
+            </button>
+          `;
+          container.appendChild(row);
+        });
+
+        container.querySelectorAll('.vol-slider').forEach(sl => {
+          sl.addEventListener('input', (e) => {
+            const tid = parseInt(e.target.getAttribute('data-track-id'));
+            const track = this.tracks.find(t => t.id === tid);
+            if (track) {
+              track.volume = e.target.value / 100;
+              e.target.nextElementSibling.innerText = `${e.target.value}%`;
+              const g = this.audio.getTrackGain(tid);
+              g.gain.setValueAtTime(track.isMuted ? 0 : track.volume, this.audio.ctx ? this.audio.ctx.currentTime : 0);
+            }
+          });
+        });
+
+        container.querySelectorAll('.inst-select').forEach(sel => {
+          sel.addEventListener('change', (e) => {
+            const tid = parseInt(e.target.getAttribute('data-track-id'));
+            const track = this.tracks.find(t => t.id === tid);
+            if (track) track.instrument = e.target.value;
+          });
+        });
+
+        container.querySelectorAll('.mute-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const tid = parseInt(e.target.getAttribute('data-track-id'));
+            const track = this.tracks.find(t => t.id === tid);
+            if (track) {
+              track.isMuted = !track.isMuted;
+              e.target.className = `mute-btn px-2.5 py-1 text-xs font-bold rounded-lg border ${track.isMuted ? 'bg-rose-500 text-white border-rose-400' : 'bg-slate-700 text-slate-300 border-slate-600'}`;
+              const g = this.audio.getTrackGain(tid);
+              g.gain.setValueAtTime(track.isMuted ? 0 : track.volume, this.audio.ctx ? this.audio.ctx.currentTime : 0);
+            }
+          });
+        });
+
+        const modal = document.getElementById('mixerModal');
+        if (modal) modal.classList.remove('hidden');
+      }
+
+      closeMixerModal() {
+        const modal = document.getElementById('mixerModal');
+        if (modal) modal.classList.add('hidden');
+      }
+
+      resetMixer() {
+        this.tracks.forEach(track => {
+          track.volume = 1.0;
+          track.isMuted = false;
+          const g = this.audio.getTrackGain(track.id);
+          g.gain.setValueAtTime(1.0, this.audio.ctx ? this.audio.ctx.currentTime : 0);
+        });
+        this.openMixerModal();
+      }
+    }
+
+    window.addEventListener('load', () => {
+      window.gameApp = new GameEngine();
+    });
+  </script>
+</body>
+</html>
