@@ -576,11 +576,11 @@
         this.analyser = null;
         this.micStream = null;
         this.buffer = null;
+        this.yinBuffer = null;
         this.isActive = false;
-        this.lastDetectTime = 0;
+        this.recentMidiHistory = [];
         this.cachedResult = { pitch: null, rms: 0, clarity: 0 };
-        this.previousStableMidi = null;
-        this.silenceCounter = 0;
+        this.lastProcessTime = 0;
       }
       async start() {
         if (this.isActive) return true;
@@ -589,17 +589,18 @@
           this.audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
           this.micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
               channelCount: 1
             }
           });
           const micSource = this.audioCtx.createMediaStreamSource(this.micStream);
           this.analyser = this.audioCtx.createAnalyser();
-          // 設為 2048 具備充足頻率解析度，但在演算法中進行精簡自相關以保證極致流暢
-          this.analyser.fftSize = 2048;
+          // 降低 FFT 長度至 1024，手機運算提速 4 倍！
+          this.analyser.fftSize = 1024;
           this.buffer = new Float32Array(this.analyser.fftSize);
+          this.yinBuffer = new Float32Array(this.analyser.fftSize / 2);
           micSource.connect(this.analyser);
           this.isActive = true;
           return true;
@@ -624,106 +625,97 @@
         if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
 
         const now = performance.now();
-        // 偵測間隔壓在 20ms，足夠靈敏且不佔用手機主線程
-        if (now - this.lastDetectTime < 20) {
+        // 限制音高運算頻率為每 25ms 一次，解放 CPU
+        if (now - this.lastProcessTime < 25) {
           return this.cachedResult;
         }
-        this.lastDetectTime = now;
+        this.lastProcessTime = now;
 
         this.analyser.getFloatTimeDomainData(this.buffer);
+
+        // 1. 計算音量能量 (RMS)
         let sumSquares = 0;
         const buflen = this.buffer.length;
-        for (let i = 0; i < buflen; i += 4) {
+        for (let i = 0; i < buflen; i += 2) {
           sumSquares += this.buffer[i] * this.buffer[i];
         }
-        const rms = Math.sqrt((sumSquares * 4) / buflen);
+        const rms = Math.sqrt((sumSquares * 2) / buflen);
 
-        // 提高有效聲音門檻，徹底濾除背景氣音與環境雜音，沒唱歌時光點絕對不亂動
-        if (rms < 0.015) {
-          this.silenceCounter++;
-          if (this.silenceCounter > 3) {
-            this.previousStableMidi = null;
-          }
+        // 提高雜音閥值：低於閥值判定為靜音，光點徹底安靜隱藏
+        if (rms < 0.022) {
+          this.recentMidiHistory = [];
           this.cachedResult = { pitch: null, rms, clarity: 0 };
           return this.cachedResult;
         }
-        this.silenceCounter = 0;
+
+        // 2. 工業級 YIN 差分演算法（高抗噪、絕不亂跳）
+        const halfLen = buflen / 2;
+        const yinBuffer = this.yinBuffer;
+        yinBuffer[0] = 1;
+
+        let runningSum = 0;
+        for (let tau = 1; tau < halfLen; tau++) {
+          let deltaSum = 0;
+          for (let i = 0; i < halfLen; i += 2) {
+            const diff = this.buffer[i] - this.buffer[i + tau];
+            deltaSum += diff * diff;
+          }
+          runningSum += deltaSum;
+          yinBuffer[tau] = runningSum > 0 ? (deltaSum * tau) / runningSum : 1;
+        }
 
         const sampleRate = this.audioCtx.sampleRate;
-        const minPeriod = Math.floor(sampleRate / 1050); // ~C6 (1046Hz)
-        const maxPeriod = Math.floor(sampleRate / 65);   // ~C2 (65Hz)
+        const minTau = Math.floor(sampleRate / 1050); // C6
+        const maxTau = Math.floor(sampleRate / 70);   // D2
+        const threshold = 0.15; // 嚴格週期閥值
 
-        let bestR = -1;
         let bestTau = -1;
-        let zeroLagEnergy = 0;
-
-        for (let i = 0; i < 600; i += 2) {
-          zeroLagEnergy += this.buffer[i] * this.buffer[i];
+        for (let tau = minTau; tau < maxTau; tau++) {
+          if (yinBuffer[tau] < threshold) {
+            while (tau + 1 < maxTau && yinBuffer[tau + 1] < yinBuffer[tau]) {
+              tau++;
+            }
+            bestTau = tau;
+            break;
+          }
         }
 
-        if (zeroLagEnergy < 0.001) {
+        if (bestTau === -1) {
+          this.recentMidiHistory = [];
           this.cachedResult = { pitch: null, rms, clarity: 0 };
           return this.cachedResult;
         }
 
-        // 自相關係數搜尋
-        for (let tau = minPeriod; tau < maxPeriod; tau += 2) {
-          let sum = 0;
-          for (let i = 0; i < 600; i += 2) {
-            sum += this.buffer[i] * this.buffer[i + tau];
-          }
-          if (sum > bestR) {
-            bestR = sum;
-            bestTau = tau;
-          }
-        }
-
-        // 諧波清晰度驗證：週期性必須大於 0.65，防止無調性噪聲引發抽搐
-        const clarity = bestR / zeroLagEnergy;
-        if (clarity < 0.62 || bestTau <= 0) {
-          this.cachedResult = { pitch: null, rms, clarity };
-          return this.cachedResult;
-        }
-
-        // 拋物線插值微調峰值，消除半音跳階
+        // 拋物線插值，精確修正常數
         let refinedTau = bestTau;
-        if (bestTau > minPeriod && bestTau < maxPeriod - 1) {
-          let s0 = 0, s1 = bestR, s2 = 0;
-          for (let i = 0; i < 600; i += 2) {
-            s0 += this.buffer[i] * this.buffer[i + bestTau - 1];
-            s2 += this.buffer[i] * this.buffer[i + bestTau + 1];
-          }
+        if (bestTau > 0 && bestTau < halfLen - 1) {
+          const s0 = yinBuffer[bestTau - 1];
+          const s1 = yinBuffer[bestTau];
+          const s2 = yinBuffer[bestTau + 1];
           const denom = 2 * (2 * s1 - s0 - s2);
           if (Math.abs(denom) > 1e-5) {
             refinedTau = bestTau + (s0 - s2) / denom;
           }
         }
 
-        const frequency = sampleRate / refinedTau;
-        let rawMidi = 69 + 12 * Math.log2(frequency / 440);
+        const freq = sampleRate / refinedTau;
+        let detectedMidi = 69 + 12 * Math.log2(freq / 440);
 
-        // 音域嚴格鎖定 C2 (36) ~ C6 (84)
-        if (rawMidi < 35.5 || rawMidi > 84.5) {
+        if (detectedMidi < 36 || detectedMidi > 84) {
           this.cachedResult = { pitch: null, rms, clarity: 0 };
           return this.cachedResult;
         }
 
-        // 防跳八度保護 (Octave Jumping Guard)
-        if (this.previousStableMidi !== null) {
-          const diff = rawMidi - this.previousStableMidi;
-          // 向上跳八度誤判修正
-          if (Math.abs(diff - 12) < 1.2) {
-            rawMidi -= 12;
-          } else if (Math.abs(diff + 12) < 1.2) { // 向下跳八度誤判修正
-            rawMidi += 12;
-          } else if (Math.abs(diff) > 7) {
-            // 超出 7 個半音的超大幅突跳，進行阻尼抑制
-            rawMidi = this.previousStableMidi + Math.sign(diff) * 4;
-          }
+        // 3. 中位數抗抖濾波器 (Median Filter, 取近 5 次的中位數，徹底殺死抽搐跳動)
+        this.recentMidiHistory.push(detectedMidi);
+        if (this.recentMidiHistory.length > 5) {
+          this.recentMidiHistory.shift();
         }
 
-        this.previousStableMidi = rawMidi;
-        this.cachedResult = { pitch: rawMidi, rms, clarity };
+        const sorted = [...this.recentMidiHistory].sort((a, b) => a - b);
+        const stableMidi = sorted[Math.floor(sorted.length / 2)];
+
+        this.cachedResult = { pitch: stableMidi, rms, clarity: 1 - yinBuffer[bestTau] };
         return this.cachedResult;
       }
     }
@@ -1301,12 +1293,9 @@
               const y = midiToMiniY(effMidi);
 
               ctx.fillStyle = '#ec4899';
-              ctx.shadowColor = 'rgba(236, 72, 153, 0.6)';
-              ctx.shadowBlur = 6;
               ctx.beginPath();
               ctx.roundRect(x, y - 4, nw, 8, 3);
               ctx.fill();
-              ctx.shadowBlur = 0;
 
               if (nw >= 14 || idx % 2 === 0) {
                 ctx.fillStyle = '#ffffff';
@@ -1550,31 +1539,16 @@
 
             if (p1.midi === null || p2.midi === null) continue;
 
-            let x1, x2;
-            if (this.isPlaying) {
-              x1 = cursorX - (this.currentTime - p1.songTime) * pxPerSec;
-              x2 = cursorX - (this.currentTime - p2.songTime) * pxPerSec;
-            } else {
-              x1 = cursorX - ((nowMs - p1.wallTime) / 1000) * (pxPerSec * 0.6);
-              x2 = cursorX - ((nowMs - p2.wallTime) / 1000) * (pxPerSec * 0.6);
-            }
+            let x1 = cursorX - (this.currentTime - p1.songTime) * pxPerSec;
+            let x2 = cursorX - (this.currentTime - p2.songTime) * pxPerSec;
 
             if (x2 < leftRulerWidth || x1 > w) continue;
 
-            if (Math.abs(x2 - x1) < 50 && Math.abs(p2.y - p1.y) < playableHeight * 0.4) {
+            if (Math.abs(x2 - x1) < 60 && Math.abs(p2.y - p1.y) < playableHeight * 0.35) {
               ctx.beginPath();
               ctx.moveTo(x1, p1.y);
               ctx.lineTo(x2, p2.y);
-
-              if (p2.accurate) {
-                ctx.strokeStyle = '#22c55e';
-              } else if (p2.status === 'SHARP') {
-                ctx.strokeStyle = '#f43f5e';
-              } else if (p2.status === 'FLAT') {
-                ctx.strokeStyle = '#38bdf8';
-              } else {
-                ctx.strokeStyle = '#10b981';
-              }
+              ctx.strokeStyle = p2.accurate ? '#22c55e' : (p2.status === 'SHARP' ? '#f43f5e' : '#38bdf8');
               ctx.stroke();
             }
           }
@@ -1594,13 +1568,25 @@
           ctx.setLineDash([]);
 
           ctx.save();
-          const haloColor = judgment && judgment.status === 'PERFECT' ? 'rgba(6, 182, 212, 0.4)' : (judgment && judgment.status === 'SHARP' ? 'rgba(244, 63, 94, 0.4)' : 'rgba(34, 197, 94, 0.4)');
+          const haloColor = judgment && judgment.status === 'PERFECT' ? 'rgba(6, 182, 212, 0.3)' : 'rgba(34, 197, 94, 0.3)';
           const coreColor = judgment && judgment.status === 'PERFECT' ? '#06b6d4' : (judgment && judgment.status === 'SHARP' ? '#f43f5e' : '#22c55e');
 
           // 外光環
           ctx.fillStyle = haloColor;
           ctx.beginPath();
-          ctx.arc(cursorX, currentVocalY, 11, 0, Math.PI * 2);
+          ctx.arc(cursorX, currentVocalY, 10, 0, Math.PI * 2);
+          ctx.fill();
+
+          // 核心實心光球
+          ctx.fillStyle = coreColor;
+          ctx.beginPath();
+          ctx.arc(cursorX, currentVocalY, 5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // 中心白點
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(cursorX, currentVocalY, 2, 0, Math.PI * 2);
           ctx.fill();
 
           // 核心實心光球
