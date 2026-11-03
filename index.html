@@ -121,15 +121,29 @@
         <input type="file" id="midiFileInput" accept=".mid,.midi" class="hidden">
       </label>
 
-      <!-- 預設曲目下拉 -->
+      <!-- 歌曲選擇下拉（已整合自訂儲存曲庫） -->
       <div class="relative flex-shrink-0">
-        <select id="presetSelect" class="h-8 bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg pl-2.5 pr-6 focus:outline-none focus:border-pink-500 appearance-none cursor-pointer">
-          <option value="twinkle">預設: 小星星</option>
-          <option value="ode">預設: 歡樂頌</option>
-          <option value="birthday">預設: 生日歌</option>
+        <select id="presetSelect" class="h-8 bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg pl-2.5 pr-6 focus:outline-none focus:border-pink-500 appearance-none cursor-pointer max-w-[140px] truncate">
+          <optgroup label="☁️ GitHub 雲端共享曲庫" id="cloudSongGroup">
+            <!-- 遠端所有人都能唱的歌曲 -->
+          </optgroup>
+          <optgroup label="📂 本機專屬曲庫" id="customSongGroup">
+            <!-- 動態插入此設備已儲存的 MIDI -->
+          </optgroup>
+          <optgroup label="🎵 內建練習曲">
+            <option value="preset_twinkle">小星星 (Twinkle)</option>
+            <option value="preset_ode">歡樂頌 (Ode to Joy)</option>
+            <option value="preset_birthday">生日快樂 (Birthday)</option>
+          </optgroup>
         </select>
         <span class="text-[9px] text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">▼</span>
       </div>
+
+      <!-- 我的曲庫管理按鈕 -->
+      <button id="openLibraryModalBtn" class="h-8 bg-slate-800 active:scale-95 text-pink-300 text-xs px-2.5 rounded-lg border border-pink-500/30 flex items-center gap-1 flex-shrink-0 font-medium">
+        <span>📚 曲庫管理</span>
+        <span id="libraryCountBadge" class="bg-pink-500/20 text-pink-400 text-[10px] px-1 rounded-full font-mono">0</span>
+      </button>
 
       <!-- 移調 -->
       <div class="h-8 flex items-center gap-1 bg-slate-800 px-2 rounded-lg border border-slate-700 text-xs flex-shrink-0">
@@ -282,1686 +296,1162 @@
     </div>
   </div>
 
-  <!-- =============================== 核心邏輯腳本 =============================== -->
+  <!-- =============================== 模態彈窗 3：我的 MIDI 曲庫管理 =============================== -->
+  <div id="libraryModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden mx-4">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <span>📚 曲庫管理中心</span>
+            <span class="text-[10px] text-cyan-400 bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 rounded">雲端共享 + 本機存儲</span>
+          </h2>
+          <p class="text-[11px] text-slate-400 mt-0.5">點擊「載入」即可開唱；點擊「🗑️」可直接從設備中徹底刪除不想留的歌曲。</p>
+        </div>
+        <button id="closeLibraryModalBtn" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
+      </div>
+
+      <!-- 曲庫說明提示 -->
+      <div class="px-6 py-2.5 bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+        <span>💡 想要讓<b>任何人的電腦</b>打開都有你的歌？只需把 MIDI 檔上傳到你的 GitHub 倉庫！</span>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1 space-y-2.5" id="libraryListContainer">
+        <!-- 動態列出已儲存歌曲 -->
+      </div>
+
+      <div class="px-6 py-3 border-t border-slate-800 flex justify-between items-center bg-slate-900/60 text-xs">
+        <span class="text-slate-400">儲存方式：設備本機專屬資料庫 (IndexedDB)</span>
+        <button id="closeLibraryModalBottomBtn" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 active:scale-95">
+          完成
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== JavaScript 核心邏輯 =============================== -->
   <script>
-    const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    const MIN_PITCH_DISPLAY = 36; // C2
-    const MAX_PITCH_DISPLAY = 84; // C6
+    /* ==========================================================================
+       1. 本機虛擬資料庫引擎 (IndexedDB Storage Manager)
+       ========================================================================== */
+    class SongDatabase {
+      constructor() {
+        this.dbName = "WebKTV_Database";
+        this.dbVersion = 1;
+        this.storeName = "midi_songs";
+        this.db = null;
+      }
 
-    function midiToName(midi) {
-      const semitone = ((Math.round(midi) % 12) + 12) % 12;
-      const octave = Math.floor(Math.round(midi) / 12) - 1;
-      return `${NOTE_NAMES[semitone]}${octave}`;
-    }
-
-    class SimpleMidiParser {
-      static parse(arrayBuffer) {
-        const view = new DataView(arrayBuffer);
-        let offset = 0;
-        const readStr = (len) => {
-          let str = "";
-          for (let i = 0; i < len; i++) str += String.fromCharCode(view.getUint8(offset++));
-          return str;
-        };
-
-        if (readStr(4) !== "MThd") throw new Error("非有效 MIDI");
-        const headerLen = view.getUint32(offset); offset += 4;
-        const format = view.getUint16(offset); offset += 2;
-        const numTracks = view.getUint16(offset); offset += 2;
-        const timeDivision = view.getUint16(offset); offset += 2;
-        offset += (headerLen - 6);
-
-        const rawTracks = [];
-        let globalMicrosecondsPerBeat = 500000;
-
-        for (let t = 0; t < numTracks; t++) {
-          if (offset >= view.byteLength) break;
-          const trackHeader = readStr(4);
-          const trackLen = view.getUint32(offset); offset += 4;
-          if (trackHeader !== "MTrk") { offset += trackLen; continue; }
-
-          const trackEnd = offset + trackLen;
-          let currentTick = 0;
-          let lastStatus = 0;
-          let trackName = `Track ${t + 1}`;
-          let programNumber = 0;
-          const events = [];
-
-          while (offset < trackEnd) {
-            let delta = 0, byte = 0;
-            do {
-              byte = view.getUint8(offset++);
-              delta = (delta << 7) | (byte & 0x7F);
-            } while (byte & 0x80);
-            currentTick += delta;
-
-            let status = view.getUint8(offset);
-            if (status & 0x80) { offset++; lastStatus = status; }
-            else { status = lastStatus; }
-
-            const eventType = status >> 4;
-            const channel = status & 0x0F;
-
-            if (status === 0xFF) {
-              const metaType = view.getUint8(offset++);
-              let metaLen = 0;
-              do {
-                byte = view.getUint8(offset++);
-                metaLen = (metaLen << 7) | (byte & 0x7F);
-              } while (byte & 0x80);
-
-              if (metaType === 0x03) {
-                let str = "";
-                for (let i = 0; i < metaLen; i++) str += String.fromCharCode(view.getUint8(offset + i));
-                if (str.trim()) trackName = str.trim();
-              } else if (metaType === 0x05 || metaType === 0x01) {
-                const textBytes = new Uint8Array(view.buffer, offset, metaLen);
-                let lyricStr = "";
-                try {
-                  lyricStr = new TextDecoder('utf-8').decode(textBytes);
-                } catch (e) {
-                  for (let i = 0; i < metaLen; i++) lyricStr += String.fromCharCode(textBytes[i]);
-                }
-                lyricStr = lyricStr.replace(/[\r\n\/\\]/g, '').trim();
-                if (lyricStr) events.push({ type: 'lyric', tick: currentTick, text: lyricStr });
-              } else if (metaType === 0x51 && metaLen === 3) {
-                globalMicrosecondsPerBeat = (view.getUint8(offset) << 16) | (view.getUint8(offset + 1) << 8) | view.getUint8(offset + 2);
-              }
-              offset += metaLen;
-            } else if (status === 0xF0 || status === 0xF7) {
-              let sysLen = 0;
-              do {
-                byte = view.getUint8(offset++);
-                sysLen = (sysLen << 7) | (byte & 0x7F);
-              } while (byte & 0x80);
-              offset += sysLen;
-            } else if (eventType === 0x9) {
-              const note = view.getUint8(offset++);
-              const vel = view.getUint8(offset++);
-              events.push({ type: vel > 0 ? 'noteOn' : 'noteOff', tick: currentTick, note, vel, channel });
-            } else if (eventType === 0x8) {
-              const note = view.getUint8(offset++);
-              const vel = view.getUint8(offset++);
-              events.push({ type: 'noteOff', tick: currentTick, note, vel, channel });
-            } else if (eventType === 0xC) {
-              programNumber = view.getUint8(offset++);
-            } else if (eventType === 0xB) {
-              const cc = view.getUint8(offset++);
-              const val = view.getUint8(offset++);
-              events.push({ type: 'cc', tick: currentTick, cc, val, channel });
-            } else {
-              offset += 1;
+      async init() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(this.dbName, this.dbVersion);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(this.storeName)) {
+              db.createObjectStore(this.storeName, { keyPath: "id" });
             }
-          }
-          rawTracks.push({ id: t, name: trackName, program: programNumber, events });
-        }
+          };
+          req.onsuccess = (e) => {
+            this.db = e.target.result;
+            resolve(this.db);
+          };
+          req.onerror = (e) => {
+            console.error("IndexedDB 打開失敗:", e);
+            resolve(null);
+          };
+        });
+      }
 
-        const calculatedBpm = Math.round(60000000 / globalMicrosecondsPerBeat);
-        const secondsPerTick = (globalMicrosecondsPerBeat / 1000000) / timeDivision;
-        const parsedTracks = [];
-
-        rawTracks.forEach(rt => {
-          const activeNotes = new Map();
-          const notes = [];
-          const lyricsList = [];
-
-          rt.events.forEach(ev => {
-            const timeSec = ev.tick * secondsPerTick;
-            if (ev.type === 'lyric') lyricsList.push({ time: timeSec, text: ev.text });
-          });
-
-          rt.events.forEach(ev => {
-            const timeSec = ev.tick * secondsPerTick;
-            if (ev.type === 'noteOn') {
-              activeNotes.set(ev.note, { start: timeSec, vel: ev.vel });
-            } else if (ev.type === 'noteOff') {
-              if (activeNotes.has(ev.note)) {
-                const on = activeNotes.get(ev.note);
-                notes.push({
-                  midi: ev.note,
-                  start: on.start,
-                  dur: Math.max(0.08, timeSec - on.start),
-                  vel: on.vel,
-                  lyric: ''
-                });
-                activeNotes.delete(ev.note);
-              }
-            }
-          });
-
-          if (notes.length > 0 && lyricsList.length > 0) {
-            lyricsList.forEach(lyr => {
-              let nearestNote = null, minDiff = 0.25;
-              notes.forEach(n => {
-                const diff = Math.abs(n.start - lyr.time);
-                if (diff < minDiff) { minDiff = diff; nearestNote = n; }
-              });
-              if (nearestNote) nearestNote.lyric = lyr.text;
-            });
-          }
-
-          if (notes.length > 0) {
-            notes.sort((a, b) => a.start - b.start);
-            let instrument = 'piano';
-            if (rt.program >= 32 && rt.program <= 39) instrument = 'bass';
-            else if (rt.program >= 40 && rt.program <= 47) instrument = 'strings';
-            else if (rt.program >= 24 && rt.program <= 31) instrument = 'guitar';
-
-            parsedTracks.push({
-              id: rt.id,
-              name: rt.name,
-              instrument,
-              role: 'backing',
-              notes,
-              volume: 1.0,
-              isMuted: false,
-              isSolo: false
-            });
+      async saveSong(song) {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+          try {
+            const tx = this.db.transaction([this.storeName], "readwrite");
+            const store = tx.objectStore(this.storeName);
+            store.put(song);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          } catch (err) {
+            console.error("存入資料庫失敗:", err);
+            resolve(false);
           }
         });
-
-        if (parsedTracks.length > 0) {
-          parsedTracks[0].role = 'lead';
-          if (parsedTracks.length > 1) parsedTracks[1].role = 'harmony';
-        }
-        return { tracks: parsedTracks, bpm: calculatedBpm };
       }
-    }
 
-    class AudioEngine {
-      constructor() {
-        this.ctx = null;
-        this.masterGain = null;
-        this.trackGains = new Map();
-        this.leadVocalMuted = false;
-        this.sustainPedalActive = false;
-      }
-      init() {
-        if (!this.ctx) {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          this.ctx = new AudioContextClass({ latencyHint: 'interactive' });
-          this.masterGain = this.ctx.createGain();
-          this.masterGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
-          this.masterGain.connect(this.ctx.destination);
-        }
-        if (this.ctx.state === 'suspended') this.ctx.resume();
-      }
-      getTrackGain(trackId) {
-        if (!this.trackGains.has(trackId)) {
-          const g = this.ctx.createGain();
-          g.gain.setValueAtTime(1.0, this.ctx.currentTime);
-          g.connect(this.masterGain);
-          this.trackGains.set(trackId, g);
-        }
-        return this.trackGains.get(trackId);
-      }
-      setSustainPedal(active) {
-        this.sustainPedalActive = active;
-        const label = document.getElementById('pedalStateLabel');
-        if (label) {
-          label.innerText = active ? "開啟 (S)" : "關 (S)";
-          label.className = active ? "text-amber-300 font-bold" : "text-slate-400";
-        }
-      }
-      playNote(track, midiNote, duration, velocity = 90) {
-        if (!this.ctx || track.isMuted) return;
-        if (track.role === 'lead' && this.leadVocalMuted) return;
-
-        const now = this.ctx.currentTime;
-        const trackGain = this.getTrackGain(track.id);
-        const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-        const velGain = Math.max(0.15, velocity / 127);
-        const effectiveDur = this.sustainPedalActive ? Math.max(duration, 3.2) : duration;
-
-        if (track.instrument === 'piano') {
-          const voiceGain = this.ctx.createGain();
-          voiceGain.connect(trackGain);
-
-          const bufferSize = Math.floor(this.ctx.sampleRate * 0.035);
-          const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-          const output = noiseBuffer.getChannelData(0);
-          for (let i = 0; i < bufferSize; i++) {
-            output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.007));
+      async getAllSongs() {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+          try {
+            const tx = this.db.transaction([this.storeName], "readonly");
+            const store = tx.objectStore(this.storeName);
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+          } catch (err) {
+            console.error("讀取資料庫失敗:", err);
+            resolve([]);
           }
-          const noiseSrc = this.ctx.createBufferSource();
-          noiseSrc.buffer = noiseBuffer;
-          const noiseFilter = this.ctx.createBiquadFilter();
-          noiseFilter.type = 'bandpass';
-          noiseFilter.frequency.value = Math.min(3200, freq * 3.5);
-          noiseFilter.Q.value = 1.8;
-          noiseSrc.connect(noiseFilter);
-          noiseFilter.connect(voiceGain);
-          noiseSrc.start(now);
+        });
+      }
 
-          const osc1 = this.ctx.createOscillator();
-          const osc2 = this.ctx.createOscillator();
-          const toneFilter = this.ctx.createBiquadFilter();
-
-          toneFilter.type = 'lowpass';
-          toneFilter.frequency.setValueAtTime(Math.min(8000, freq * 6), now);
-          toneFilter.frequency.exponentialRampToValueAtTime(Math.max(120, freq * 1.5), now + effectiveDur);
-
-          osc1.type = 'triangle';
-          osc2.type = 'sine';
-          osc1.frequency.setValueAtTime(freq, now);
-          osc2.frequency.setValueAtTime(freq * 1.002, now);
-
-          voiceGain.gain.setValueAtTime(0.0001, now);
-          voiceGain.gain.linearRampToValueAtTime(velGain * 0.9, now + 0.006);
-          voiceGain.gain.exponentialRampToValueAtTime(velGain * 0.45, now + 0.12);
-          voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + effectiveDur);
-
-          osc1.connect(toneFilter);
-          osc2.connect(toneFilter);
-          toneFilter.connect(voiceGain);
-
-          osc1.start(now);
-          osc2.start(now);
-          osc1.stop(now + effectiveDur);
-          osc2.stop(now + effectiveDur);
-        } else if (track.instrument === 'strings') {
-          const osc1 = this.ctx.createOscillator();
-          const osc2 = this.ctx.createOscillator();
-          const strGain = this.ctx.createGain();
-          const strFilter = this.ctx.createBiquadFilter();
-
-          strFilter.type = 'lowpass';
-          strFilter.frequency.value = Math.min(4200, freq * 3);
-
-          osc1.type = 'sawtooth';
-          osc2.type = 'sawtooth';
-          osc1.frequency.setValueAtTime(freq, now);
-          osc2.frequency.setValueAtTime(freq * 1.006, now);
-
-          strGain.gain.setValueAtTime(0.001, now);
-          strGain.gain.linearRampToValueAtTime(velGain * 0.5, now + 0.08);
-          strGain.gain.setValueAtTime(velGain * 0.5, now + effectiveDur - 0.05);
-          strGain.gain.exponentialRampToValueAtTime(0.0001, now + effectiveDur + 0.3);
-
-          osc1.connect(strFilter);
-          osc2.connect(strFilter);
-          strFilter.connect(strGain);
-          strGain.connect(trackGain);
-
-          osc1.start(now);
-          osc2.start(now);
-          osc1.stop(now + effectiveDur + 0.3);
-          osc2.stop(now + effectiveDur + 0.3);
-        } else {
-          const osc = this.ctx.createOscillator();
-          const genGain = this.ctx.createGain();
-          osc.type = track.instrument === 'bass' ? 'triangle' : 'sine';
-          osc.frequency.setValueAtTime(freq, now);
-
-          genGain.gain.setValueAtTime(velGain * 0.7, now);
-          genGain.gain.exponentialRampToValueAtTime(0.0001, now + effectiveDur);
-
-          osc.connect(genGain);
-          genGain.connect(trackGain);
-
-          osc.start(now);
-          osc.stop(now + effectiveDur);
-        }
+      async deleteSong(id) {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+          try {
+            const tx = this.db.transaction([this.storeName], "readwrite");
+            const store = tx.objectStore(this.storeName);
+            store.delete(id);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          } catch (err) {
+            resolve(false);
+          }
+        });
       }
     }
 
-    class PitchDetectorEngine {
+    const songDB = new SongDatabase();
+
+    /* ==========================================================================
+       2. 極速 YIN 音高偵測演算法 + 3 幀抗抖動中位數濾波
+       ========================================================================== */
+    class FastPitchEngine {
       constructor() {
         this.audioCtx = null;
         this.analyser = null;
         this.gainNode = null;
-        this.micStream = null;
-        this.buffer = null;
-        this.yinBuffer = null;
-        this.isActive = false;
-        this.recentMidiHistory = [];
-        this.cachedResult = { pitch: null, rms: 0, clarity: 0 };
-        this.lastProcessTime = 0;
-
-        // 靈敏度參數配置 (預設高靈敏度，大幅降低門檻與放大收音)
-        this.sensitivity = 'high';
-        this.rmsThreshold = 0.005; // 大幅降低音量門檻 (原本 0.022 太苛刻)
-        this.yinThreshold = 0.22;  // 放寬週期容忍度，輕鬆識別電腦麥克風
-        this.micGainMultiplier = 2.6; // 前級放大 2.6 倍
+        this.mediaStream = null;
+        this.buffer = new Float32Array(1024);
+        this.pitchHistory = [];
+        this.currentPitch = null;
+        this.currentNote = null;
+        this.currentCents = 0;
+        this.rms = 0;
+        this.threshold = 0.18; // YIN 容許門檻
+        this.rmsThreshold = 0.005; // 靈敏底噪門檻
+        this.gainMultiplier = 2.6; // 前級放大增益
       }
 
-      setSensitivity(mode) {
-        this.sensitivity = mode;
-        if (mode === 'ultra') {
-          this.rmsThreshold = 0.0025;
-          this.yinThreshold = 0.26;
-          this.micGainMultiplier = 4.0;
-        } else if (mode === 'high') {
-          this.rmsThreshold = 0.005;
-          this.yinThreshold = 0.22;
-          this.micGainMultiplier = 2.6;
-        } else if (mode === 'medium') {
-          this.rmsThreshold = 0.012;
-          this.yinThreshold = 0.18;
-          this.micGainMultiplier = 1.5;
-        } else {
-          this.rmsThreshold = 0.025;
-          this.yinThreshold = 0.14;
-          this.micGainMultiplier = 1.0;
-        }
-        if (this.gainNode && this.audioCtx) {
-          this.gainNode.gain.setValueAtTime(this.micGainMultiplier, this.audioCtx.currentTime);
-        }
-      }
-
-      async start() {
-        if (this.isActive) return true;
+      async initMic() {
         try {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          this.audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
+          this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (this.audioCtx.state === "suspended") {
+            await this.audioCtx.resume();
+          }
 
-          // 核心修復：關閉 noiseSuppression 與 echoCancellation，避免瀏覽器把唱歌當雜音過濾吃掉！
-          this.micStream = await navigator.mediaDevices.getUserMedia({
+          // 停用吃掉歌聲的硬體降噪，保留純淨泛音
+          this.mediaStream = await navigator.mediaDevices.getUserMedia({
             audio: {
               echoCancellation: false,
               noiseSuppression: false,
-              autoGainControl: true,
-              channelCount: 1
+              autoGainControl: false,
+              latency: 0
             }
           });
 
-          const micSource = this.audioCtx.createMediaStreamSource(this.micStream);
-          
-          // 前級數位增益放大器，解決電腦收音微弱問題
+          const source = this.audioCtx.createMediaStreamSource(this.mediaStream);
           this.gainNode = this.audioCtx.createGain();
-          this.gainNode.gain.setValueAtTime(this.micGainMultiplier, this.audioCtx.currentTime);
+          this.gainNode.gain.value = this.gainMultiplier;
 
           this.analyser = this.audioCtx.createAnalyser();
           this.analyser.fftSize = 1024;
-          this.analyser.smoothingTimeConstant = 0.1;
-          this.buffer = new Float32Array(this.analyser.fftSize);
-          this.yinBuffer = new Float32Array(this.analyser.fftSize / 2);
+          this.analyser.smoothingTimeConstant = 0.0;
 
-          // 串接：麥克風 -> 數位放大器 -> 分析器
-          micSource.connect(this.gainNode);
+          source.connect(this.gainNode);
           this.gainNode.connect(this.analyser);
-
-          this.isActive = true;
           return true;
         } catch (err) {
-          console.error("麥克風無法啟動:", err);
+          console.error("無法取得麥克風權限:", err);
           return false;
         }
       }
-      stop() {
-        if (this.micStream) {
-          this.micStream.getTracks().forEach(t => t.stop());
-          this.micStream = null;
-        }
-        if (this.audioCtx) {
-          this.audioCtx.close();
-          this.audioCtx = null;
-        }
-        this.isActive = false;
-      }
-      getLivePitch() {
-        if (!this.isActive || !this.analyser) return { pitch: null, rms: 0, clarity: 0 };
-        if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
 
-        const now = performance.now();
-        // 將音高運算頻率提速至每 16ms 一次 (60Hz 同步刷新，反應極快)
-        if (now - this.lastProcessTime < 16) {
-          return this.cachedResult;
+      setSensitivity(mode) {
+        if (mode === "ultra") {
+          this.rmsThreshold = 0.003;
+          this.threshold = 0.22;
+          if (this.gainNode) this.gainNode.gain.value = 3.8;
+        } else if (mode === "high") {
+          this.rmsThreshold = 0.005;
+          this.threshold = 0.18;
+          if (this.gainNode) this.gainNode.gain.value = 2.6;
+        } else if (mode === "medium") {
+          this.rmsThreshold = 0.010;
+          this.threshold = 0.15;
+          if (this.gainNode) this.gainNode.gain.value = 1.8;
+        } else {
+          this.rmsThreshold = 0.020;
+          this.threshold = 0.12;
+          if (this.gainNode) this.gainNode.gain.value = 1.0;
         }
-        this.lastProcessTime = now;
+      }
+
+      detect() {
+        if (!this.analyser) return { pitch: null, note: null, cents: 0, rms: 0 };
 
         this.analyser.getFloatTimeDomainData(this.buffer);
 
-        // 1. 計算音量能量 (RMS)
-        let sumSquares = 0;
-        const buflen = this.buffer.length;
-        for (let i = 0; i < buflen; i += 2) {
-          sumSquares += this.buffer[i] * this.buffer[i];
+        // 1. 計算 RMS 能量
+        let sum = 0;
+        for (let i = 0; i < this.buffer.length; i++) {
+          sum += this.buffer[i] * this.buffer[i];
         }
-        const rms = Math.sqrt((sumSquares * 2) / buflen);
+        this.rms = Math.sqrt(sum / this.buffer.length);
 
-        // 靈敏度判斷：低於閥值判定為靜音
-        if (rms < this.rmsThreshold) {
-          this.recentMidiHistory = [];
-          this.cachedResult = { pitch: null, rms, clarity: 0 };
-          return this.cachedResult;
+        // 低於門檻直接歸零，防止空調/呼吸亂跳
+        if (this.rms < this.rmsThreshold) {
+          this.pitchHistory = [];
+          this.currentPitch = null;
+          return { pitch: null, note: null, cents: 0, rms: this.rms };
         }
 
-        // 2. 工業級 YIN 差分演算法
-        const halfLen = buflen / 2;
-        const yinBuffer = this.yinBuffer;
-        yinBuffer[0] = 1;
-
+        // 2. 快速差分自相關 (YIN 核心差分方程)
+        const halfSize = Math.floor(this.buffer.length / 2);
+        const diff = new Float32Array(halfSize);
+        diff[0] = 1;
         let runningSum = 0;
-        for (let tau = 1; tau < halfLen; tau++) {
-          let deltaSum = 0;
-          for (let i = 0; i < halfLen; i += 2) {
-            const diff = this.buffer[i] - this.buffer[i + tau];
-            deltaSum += diff * diff;
+
+        for (let tau = 1; tau < halfSize; tau++) {
+          let d = 0;
+          for (let i = 0; i < halfSize; i++) {
+            const delta = this.buffer[i] - this.buffer[i + tau];
+            d += delta * delta;
           }
-          runningSum += deltaSum;
-          yinBuffer[tau] = runningSum > 0 ? (deltaSum * tau) / runningSum : 1;
+          runningSum += d;
+          diff[tau] = runningSum > 0 ? (d * tau) / runningSum : 1;
         }
 
-        const sampleRate = this.audioCtx.sampleRate;
-        const minTau = Math.floor(sampleRate / 1050); // C6
-        const maxTau = Math.floor(sampleRate / 65);   // C2
-        const threshold = this.yinThreshold;
-
-        let bestTau = -1;
-        for (let tau = minTau; tau < maxTau; tau++) {
-          if (yinBuffer[tau] < threshold) {
-            while (tau + 1 < maxTau && yinBuffer[tau + 1] < yinBuffer[tau]) {
+        // 尋找局部極小值
+        let tauEstimate = -1;
+        for (let tau = 2; tau < halfSize; tau++) {
+          if (diff[tau] < this.threshold) {
+            while (tau + 1 < halfSize && diff[tau + 1] < diff[tau]) {
               tau++;
             }
-            bestTau = tau;
+            tauEstimate = tau;
             break;
           }
         }
 
-        if (bestTau === -1) {
-          this.recentMidiHistory = [];
-          this.cachedResult = { pitch: null, rms, clarity: 0 };
-          return this.cachedResult;
+        if (tauEstimate === -1) {
+          return { pitch: null, note: null, cents: 0, rms: this.rms };
         }
 
-        // 拋物線插值，精確修正常數
-        let refinedTau = bestTau;
-        if (bestTau > 0 && bestTau < halfLen - 1) {
-          const s0 = yinBuffer[bestTau - 1];
-          const s1 = yinBuffer[bestTau];
-          const s2 = yinBuffer[bestTau + 1];
-          const denom = 2 * (2 * s1 - s0 - s2);
-          if (Math.abs(denom) > 1e-5) {
-            refinedTau = bestTau + (s0 - s2) / denom;
+        // 拋物線精確內插
+        let betterTau = tauEstimate;
+        if (tauEstimate > 0 && tauEstimate < halfSize - 1) {
+          const s0 = diff[tauEstimate - 1];
+          const s1 = diff[tauEstimate];
+          const s2 = diff[tauEstimate + 1];
+          betterTau = tauEstimate + (s2 - s0) / (2 * (2 * s1 - s2 - s0));
+        }
+
+        const sampleRate = this.audioCtx.sampleRate;
+        const rawPitch = sampleRate / betterTau;
+
+        // 音域過濾 (C2: 65Hz ~ C6: 1046Hz)
+        if (rawPitch < 65 || rawPitch > 1050) {
+          return { pitch: null, note: null, cents: 0, rms: this.rms };
+        }
+
+        // 3 幀滑動中位數濾波（抗抽搐）
+        this.pitchHistory.push(rawPitch);
+        if (this.pitchHistory.length > 3) this.pitchHistory.shift();
+
+        const sorted = [...this.pitchHistory].sort((a, b) => a - b);
+        const filteredPitch = sorted[Math.floor(sorted.length / 2)];
+
+        // 八度跳躍保護
+        if (this.currentPitch) {
+          const ratio = filteredPitch / this.currentPitch;
+          if (Math.abs(ratio - 2) < 0.08) {
+            this.currentPitch = filteredPitch / 2;
+          } else if (Math.abs(ratio - 0.5) < 0.08) {
+            this.currentPitch = filteredPitch * 2;
+          } else {
+            this.currentPitch = this.currentPitch * 0.4 + filteredPitch * 0.6;
           }
+        } else {
+          this.currentPitch = filteredPitch;
         }
 
-        const freq = sampleRate / refinedTau;
-        let detectedMidi = 69 + 12 * Math.log2(freq / 440);
+        // 轉換為 MIDI Note 與音名
+        const midiNum = 69 + 12 * Math.log2(this.currentPitch / 440);
+        const roundedMidi = Math.round(midiNum);
+        const cents = Math.round((midiNum - roundedMidi) * 100);
 
-        if (detectedMidi < 36 || detectedMidi > 84) {
-          this.cachedResult = { pitch: null, rms, clarity: 0 };
-          return this.cachedResult;
-        }
+        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const noteName = noteNames[((roundedMidi % 12) + 12) % 12] + (Math.floor(roundedMidi / 12) - 1);
 
-        // 3. 3 幀快速中位數濾波 (從原本 5 幀縮減至 3 幀，反應更即時、零延遲)
-        this.recentMidiHistory.push(detectedMidi);
-        if (this.recentMidiHistory.length > 3) {
-          this.recentMidiHistory.shift();
-        }
+        this.currentNote = noteName;
+        this.currentCents = cents;
 
-        const sorted = [...this.recentMidiHistory].sort((a, b) => a - b);
-        const stableMidi = sorted[Math.floor(sorted.length / 2)];
-
-        this.cachedResult = { pitch: stableMidi, rms, clarity: 1 - yinBuffer[bestTau] };
-        return this.cachedResult;
+        return {
+          pitch: this.currentPitch,
+          midi: midiNum,
+          roundedMidi,
+          note: noteName,
+          cents,
+          rms: this.rms
+        };
       }
     }
 
-    const PRESET_SONGS = {
-      twinkle: [
-        {
-          id: 0, name: "主旋律 (Lead Vocal)", instrument: "piano", role: "lead", volume: 1.0, isMuted: false, isSolo: false,
-          notes: [
-            { midi: 60, start: 0.5, dur: 0.6 }, { midi: 60, start: 1.2, dur: 0.6 },
-            { midi: 67, start: 1.9, dur: 0.6 }, { midi: 67, start: 2.6, dur: 0.6 },
-            { midi: 69, start: 3.3, dur: 0.6 }, { midi: 69, start: 4.0, dur: 0.6 },
-            { midi: 67, start: 4.7, dur: 1.2 },
-            { midi: 65, start: 6.2, dur: 0.6 }, { midi: 65, start: 6.9, dur: 0.6 },
-            { midi: 64, start: 7.6, dur: 0.6 }, { midi: 64, start: 8.3, dur: 0.6 },
-            { midi: 62, start: 9.0, dur: 0.6 }, { midi: 62, start: 9.7, dur: 0.6 },
-            { midi: 60, start: 10.4, dur: 1.2 }
-          ]
-        },
-        {
-          id: 1, name: "二部和聲 (Harmony)", instrument: "strings", role: "harmony", volume: 0.85, isMuted: false, isSolo: false,
-          notes: [
-            { midi: 64, start: 0.5, dur: 0.6 }, { midi: 64, start: 1.2, dur: 0.6 },
-            { midi: 64, start: 1.9, dur: 0.6 }, { midi: 64, start: 2.6, dur: 0.6 },
-            { midi: 65, start: 3.3, dur: 0.6 }, { midi: 65, start: 4.0, dur: 0.6 },
-            { midi: 64, start: 4.7, dur: 1.2 },
-            { midi: 62, start: 6.2, dur: 0.6 }, { midi: 62, start: 6.9, dur: 0.6 },
-            { midi: 60, start: 7.6, dur: 0.6 }, { midi: 60, start: 8.3, dur: 0.6 },
-            { midi: 59, start: 9.0, dur: 0.6 }, { midi: 59, start: 9.7, dur: 0.6 },
-            { midi: 55, start: 10.4, dur: 1.2 }
-          ]
-        },
-        {
-          id: 2, name: "貝斯與伴奏 (Bass)", instrument: "bass", role: "backing", volume: 0.9, isMuted: false, isSolo: false,
-          notes: [
-            { midi: 48, start: 0.5, dur: 1.3 }, { midi: 48, start: 1.9, dur: 1.3 },
-            { midi: 45, start: 3.3, dur: 1.3 }, { midi: 48, start: 4.7, dur: 1.3 },
-            { midi: 41, start: 6.2, dur: 1.3 }, { midi: 48, start: 7.6, dur: 1.3 },
-            { midi: 43, start: 9.0, dur: 1.3 }, { midi: 48, start: 10.4, dur: 1.5 }
-          ]
+    /* ==========================================================================
+       3. Web Audio 合成器伴奏播放引擎 (支援動態變速 BPM)
+       ========================================================================== */
+    class AudioEngine {
+      constructor() {
+        this.ctx = null;
+        this.isPlaying = false;
+        this.isMuted = false;
+        this.leadVolume = 0.7;
+        this.masterVolume = 1.0;
+        this.activeOscillators = [];
+      }
+
+      async init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         }
-      ],
-      ode: [
-        {
-          id: 0, name: "主唱 (Lead)", instrument: "piano", role: "lead", volume: 1.0, isMuted: false, isSolo: false,
-          notes: [
-            { midi: 64, start: 0.5, dur: 0.5 }, { midi: 64, start: 1.1, dur: 0.5 },
-            { midi: 65, start: 1.7, dur: 0.5 }, { midi: 67, start: 2.3, dur: 0.5 },
-            { midi: 67, start: 2.9, dur: 0.5 }, { midi: 65, start: 3.5, dur: 0.5 },
-            { midi: 64, start: 4.1, dur: 0.5 }, { midi: 62, start: 4.7, dur: 0.5 }
-          ]
+        if (this.ctx.state === "suspended") {
+          await this.ctx.resume();
         }
-      ],
-      birthday: [
-        {
-          id: 0, name: "生日快樂 (Lead)", instrument: "piano", role: "lead", volume: 1.0, isMuted: false, isSolo: false,
-          notes: [
-            { midi: 60, start: 0.5, dur: 0.4 }, { midi: 60, start: 1.0, dur: 0.4 },
-            { midi: 62, start: 1.5, dur: 0.8 }, { midi: 60, start: 2.4, dur: 0.8 },
-            { midi: 65, start: 3.3, dur: 0.8 }, { midi: 64, start: 4.2, dur: 1.4 }
-          ]
-        }
-      ]
+      }
+
+      midiToFreq(midi) {
+        return 440 * Math.pow(2, (midi - 69) / 12);
+      }
+
+      playNote(midi, duration = 0.3, type = "lead") {
+        if (!this.ctx || this.isMuted) return;
+
+        const freq = this.midiToFreq(midi);
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = type === "lead" ? "triangle" : "sine";
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+
+        const now = this.ctx.currentTime;
+        const vol = type === "lead" ? this.leadVolume : 0.35;
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(vol, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration, 0.05));
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + duration + 0.05);
+      }
+    }
+
+    /* ==========================================================================
+       4. 內建預設歌曲與 GitHub 雲端曲目清單 (所有人隨時可唱)
+       ========================================================================== */
+    // 💡 只要將 .mid 檔上傳至 GitHub，並在下方陣列填入檔名，所有人打開網址就能直接選唱！
+    const CLOUD_SONGS = [
+      // 範例：{ name: "晴天", file: "qingtian.mid" },
+      // 範例：{ name: "告白氣球", file: "gaobai.mid" }
+    ];
+
+    const PRESETS = {
+      preset_twinkle: {
+        name: "小星星 (Twinkle Twinkle Little Star)",
+        bpm: 100,
+        notes: [
+          { midi: 60, start: 0.5, dur: 0.8 }, { midi: 60, start: 1.5, dur: 0.8 },
+          { midi: 67, start: 2.5, dur: 0.8 }, { midi: 67, start: 3.5, dur: 0.8 },
+          { midi: 69, start: 4.5, dur: 0.8 }, { midi: 69, start: 5.5, dur: 0.8 },
+          { midi: 67, start: 6.5, dur: 1.6 },
+          { midi: 65, start: 8.5, dur: 0.8 }, { midi: 65, start: 9.5, dur: 0.8 },
+          { midi: 64, start: 10.5, dur: 0.8 }, { midi: 64, start: 11.5, dur: 0.8 },
+          { midi: 62, start: 12.5, dur: 0.8 }, { midi: 62, start: 13.5, dur: 0.8 },
+          { midi: 60, start: 14.5, dur: 1.8 }
+        ]
+      },
+      preset_ode: {
+        name: "歡樂頌 (Ode to Joy)",
+        bpm: 120,
+        notes: [
+          { midi: 64, start: 0.5, dur: 0.45 }, { midi: 64, start: 1.0, dur: 0.45 },
+          { midi: 65, start: 1.5, dur: 0.45 }, { midi: 67, start: 2.0, dur: 0.45 },
+          { midi: 67, start: 2.5, dur: 0.45 }, { midi: 65, start: 3.0, dur: 0.45 },
+          { midi: 64, start: 3.5, dur: 0.45 }, { midi: 62, start: 4.0, dur: 0.45 },
+          { midi: 60, start: 4.5, dur: 0.45 }, { midi: 60, start: 5.0, dur: 0.45 },
+          { midi: 62, start: 5.5, dur: 0.45 }, { midi: 64, start: 6.0, dur: 0.7 },
+          { midi: 62, start: 7.0, dur: 0.25 }, { midi: 62, start: 7.5, dur: 0.9 }
+        ]
+      },
+      preset_birthday: {
+        name: "祝你生日快樂 (Happy Birthday)",
+        bpm: 110,
+        notes: [
+          { midi: 60, start: 0.5, dur: 0.35 }, { midi: 60, start: 1.0, dur: 0.35 },
+          { midi: 62, start: 1.5, dur: 0.8 },  { midi: 60, start: 2.5, dur: 0.8 },
+          { midi: 65, start: 3.5, dur: 0.8 },  { midi: 64, start: 4.5, dur: 1.6 },
+          { midi: 60, start: 6.5, dur: 0.35 }, { midi: 60, start: 7.0, dur: 0.35 },
+          { midi: 62, start: 7.5, dur: 0.8 },  { midi: 60, start: 8.5, dur: 0.8 },
+          { midi: 67, start: 9.5, dur: 0.8 },  { midi: 65, start: 10.5, dur: 1.6 }
+        ]
+      }
     };
 
-    class GameEngine {
-      constructor() {
-        this.audio = new AudioEngine();
-        this.pitchEngine = new PitchDetectorEngine();
+    /* ==========================================================================
+       5. 輕量高效 MIDI 解析器 (支援讀取 0x51 Set Tempo 速度)
+       ========================================================================== */
+    class SimpleMidiParser {
+      static parse(arrayBuffer) {
+        const view = new DataView(arrayBuffer);
+        let offset = 0;
 
-        this.tracks = [];
-        this.currentTime = 0;
+        function readString(len) {
+          let str = "";
+          for (let i = 0; i < len; i++) {
+            str += String.fromCharCode(view.getUint8(offset++));
+          }
+          return str;
+        }
+
+        const headerChunk = readString(4);
+        if (headerChunk !== "MThd") throw new Error("無效的 MIDI 檔案格式");
+
+        const headerLength = view.getUint32(offset);
+        offset += 4;
+        const formatType = view.getUint16(offset);
+        offset += 2;
+        const trackCount = view.getUint16(offset);
+        offset += 2;
+        const timeDivision = view.getUint16(offset);
+        offset += 2;
+
+        let detectedBpm = 120; // 預設 120
+        let tempoMicroseconds = 500000;
+        const rawTracks = [];
+
+        for (let t = 0; t < trackCount; t++) {
+          if (offset >= view.byteLength) break;
+          const chunkId = readString(4);
+          const chunkLen = view.getUint32(offset);
+          offset += 4;
+
+          if (chunkId !== "MTrk") {
+            offset += chunkLen;
+            continue;
+          }
+
+          const endTrack = offset + chunkLen;
+          const trackEvents = [];
+          let ticks = 0;
+          let lastStatus = 0;
+
+          while (offset < endTrack) {
+            // 讀取變長 Delta Time
+            let delta = 0;
+            let byte = 0;
+            do {
+              byte = view.getUint8(offset++);
+              delta = (delta << 7) | (byte & 0x7f);
+            } while (byte & 0x80);
+
+            ticks += delta;
+
+            let status = view.getUint8(offset);
+            if (status & 0x80) {
+              lastStatus = status;
+              offset++;
+            } else {
+              status = lastStatus;
+            }
+
+            const eventType = status >> 4;
+            const channel = status & 0x0f;
+
+            if (status === 0xff) {
+              // Meta Event
+              const metaType = view.getUint8(offset++);
+              let metaLen = 0;
+              do {
+                byte = view.getUint8(offset++);
+                metaLen = (metaLen << 7) | (byte & 0x7f);
+              } while (byte & 0x80);
+
+              if (metaType === 0x51 && metaLen === 3) {
+                // Set Tempo 事件
+                const t0 = view.getUint8(offset);
+                const t1 = view.getUint8(offset + 1);
+                const t2 = view.getUint8(offset + 2);
+                tempoMicroseconds = (t0 << 16) | (t1 << 8) | t2;
+                detectedBpm = Math.round(60000000 / tempoMicroseconds);
+              }
+              offset += metaLen;
+            } else if (status === 0xf0 || status === 0xf7) {
+              // SysEx
+              let sysexLen = 0;
+              do {
+                byte = view.getUint8(offset++);
+                sysexLen = (sysexLen << 7) | (byte & 0x7f);
+              } while (byte & 0x80);
+              offset += sysexLen;
+            } else {
+              // Channel Event
+              const data1 = view.getUint8(offset++);
+              let data2 = 0;
+              if (eventType !== 0x0c && eventType !== 0x0d) {
+                data2 = view.getUint8(offset++);
+              }
+
+              if (eventType === 0x09 && data2 > 0) {
+                // Note ON
+                trackEvents.push({ type: "noteOn", ticks, midi: data1, vel: data2, channel });
+              } else if (eventType === 0x08 || (eventType === 0x09 && data2 === 0)) {
+                // Note OFF
+                trackEvents.push({ type: "noteOff", ticks, midi: data1, channel });
+              }
+            }
+          }
+
+          rawTracks.push(trackEvents);
+        }
+
+        // 轉換為真實秒數音符
+        const secondsPerTick = (tempoMicroseconds / 1000000) / (timeDivision || 480);
+        const melodyNotes = [];
+
+        rawTracks.forEach(events => {
+          const activeNotes = {};
+          events.forEach(ev => {
+            if (ev.type === "noteOn") {
+              activeNotes[ev.midi] = ev.ticks * secondsPerTick;
+            } else if (ev.type === "noteOff" && activeNotes[ev.midi] !== undefined) {
+              const start = activeNotes[ev.midi];
+              const end = ev.ticks * secondsPerTick;
+              if (end - start > 0.05) {
+                melodyNotes.push({
+                  midi: ev.midi,
+                  start: start,
+                  dur: end - start
+                });
+              }
+              delete activeNotes[ev.midi];
+            }
+          });
+        });
+
+        melodyNotes.sort((a, b) => a.start - b.start);
+        return {
+          bpm: detectedBpm || 120,
+          notes: melodyNotes
+        };
+      }
+    }
+
+    /* ==========================================================================
+       6. 遊戲主主控台 (Game App Core)
+       ========================================================================== */
+    class KTVApp {
+      constructor() {
+        this.pitchEngine = new FastPitchEngine();
+        this.audioEngine = new AudioEngine();
+        this.canvas = document.getElementById("gameCanvas");
+        this.ctx = this.canvas.getContext("2d");
+
+        this.timelineCanvas = document.getElementById("timelineCanvas");
+        this.tCtx = this.timelineCanvas.getContext("2d");
+
+        // 歌曲狀態
+        this.currentSongNotes = [];
         this.songDuration = 20;
+        this.originalBpm = 120;
+        this.currentBpm = 120;
+        this.playbackRate = 1.0;
+        this.currentTime = 0;
         this.isPlaying = false;
         this.transpose = 0;
-        this.originalBpm = 120;  // 讀取到的 MIDI 原始 BPM
-        this.currentBpm = 120;   // 當前設定的 BPM (直接加減此數值)
-        this.playbackRate = 1.0; // 播放速度倍率 (currentBpm / originalBpm)
+
+        // 計分狀態
         this.score = 0;
         this.combo = 0;
+        this.userTrail = []; // 歷史音高軌跡
 
-        this.playbackStartWallTime = 0;
-        this.playbackStartSongTime = 0;
-        this.scheduledNotes = new Set();
+        // 音域範圍 C2 (36) ~ C6 (84)
+        this.minMidi = 48; // C3
+        this.maxMidi = 76; // E5
+        this.viewWindowSeconds = 5.0; // 跑道顯示時間寬度
 
-        this.smoothedVocalMidi = null;
-        this.livePitchTrail = [];
-
-        this.canvas = document.getElementById('gameCanvas');
-        this.ctx = this.canvas.getContext('2d');
-        this.timelineCanvas = document.getElementById('timelineCanvas');
-        this.timelineCtx = this.timelineCanvas ? this.timelineCanvas.getContext('2d') : null;
-
-        this.timelineContainer = document.getElementById('timelineContainer');
-        this.timelineTrack = document.getElementById('timelineTrack');
-        this.timelineProgress = document.getElementById('timelineProgress');
-        this.timelineThumb = document.getElementById('timelineThumb');
-        this.timelineStartLabel = document.getElementById('timelineStartLabel');
-        this.timelineEndLabel = document.getElementById('timelineEndLabel');
-
-        this.playPauseBtn = document.getElementById('playPauseBtn');
-        this.playIcon = document.getElementById('playIcon');
-        this.playText = document.getElementById('playText');
-        this.timeCurrent = document.getElementById('timeCurrent');
-        this.timeTotal = document.getElementById('timeTotal');
-
-        this.scoreDisplay = document.getElementById('scoreDisplay');
-        this.comboDisplay = document.getElementById('comboDisplay');
-        this.judgmentPopup = document.getElementById('judgmentPopup');
-        this.judgmentText = document.getElementById('judgmentText');
-        this.judgmentCents = document.getElementById('judgmentCents');
-
-        this.timelineWindowSec = 30;
-        this.timelineStartSec = 0;
-
-        this.initDOMEvents();
-        this.loadPreset('twinkle');
+        this.initDOM();
+        this.initEvents();
+        this.initLibrary();
+        this.loadPreset("preset_twinkle");
         this.resize();
+        window.addEventListener("resize", () => this.resize());
 
-        requestAnimationFrame(() => this.loop());
+        requestAnimationFrame((t) => this.renderLoop(t));
       }
 
-      initDOMEvents() {
-        window.addEventListener('resize', () => this.resize());
+      initDOM() {
+        this.playPauseBtn = document.getElementById("playPauseBtn");
+        this.playIcon = document.getElementById("playIcon");
+        this.playText = document.getElementById("playText");
+        this.rewindBtn = document.getElementById("rewindBtn");
+        this.timeCurrent = document.getElementById("timeCurrent");
+        this.timeTotal = document.getElementById("timeTotal");
+        this.scoreDisplay = document.getElementById("scoreDisplay");
+        this.comboDisplay = document.getElementById("comboDisplay");
+        this.micLevelBar = document.getElementById("micLevelBar");
+        this.detectedPitchLabel = document.getElementById("detectedPitchLabel");
+        this.presetSelect = document.getElementById("presetSelect");
+        this.customSongGroup = document.getElementById("customSongGroup");
+        this.cloudSongGroup = document.getElementById("cloudSongGroup");
 
-        const startMic = document.getElementById('startMicBtn');
-        if (startMic) {
-          startMic.addEventListener('click', async () => {
-            const ok = await this.pitchEngine.start();
-            if (ok) {
-              document.getElementById('micPromptOverlay').classList.add('opacity-0', 'pointer-events-none');
-              this.audio.init();
-            }
-          });
-        }
+        // BPM 控件
+        this.originalBpmDisplay = document.getElementById("originalBpmDisplay");
+        this.origBpmBtn = document.getElementById("origBpmBtn");
+        this.bpmInputField = document.getElementById("bpmInputField");
+        this.speedPercentLabel = document.getElementById("speedPercentLabel");
+        this.speedDownBtn = document.getElementById("speedDownBtn");
+        this.speedUpBtn = document.getElementById("speedUpBtn");
+        this.speedDown5Btn = document.getElementById("speedDown5Btn");
+        this.speedUp5Btn = document.getElementById("speedUp5Btn");
 
-        const micToggle = document.getElementById('micToggleBtn');
-        if (micToggle) {
-          micToggle.addEventListener('click', async () => {
-            this.audio.init();
-            if (this.pitchEngine.isActive) {
-              this.pitchEngine.stop();
-              document.getElementById('detectedPitchLabel').innerText = "--";
-            } else {
-              await this.pitchEngine.start();
-            }
-          });
-        }
+        // 移調與導音
+        this.transposeVal = document.getElementById("transposeVal");
+        this.leadMuteToggle = document.getElementById("leadMuteToggle");
+        this.leadMuteIcon = document.getElementById("leadMuteIcon");
 
-        // 麥克風靈敏度切換事件
-        const micSensSel = document.getElementById('micSensitivitySelect');
-        if (micSensSel) {
-          micSensSel.addEventListener('change', (e) => {
-            this.pitchEngine.setSensitivity(e.target.value);
-          });
-        }
-
-        if (this.playPauseBtn) this.playPauseBtn.addEventListener('click', () => this.togglePlay());
-        const rewindBtn = document.getElementById('rewindBtn');
-        if (rewindBtn) rewindBtn.addEventListener('click', () => this.seekTo(0));
-
-        const pedalBtn = document.getElementById('pedalToggleBtn');
-        if (pedalBtn) {
-          pedalBtn.addEventListener('click', () => {
-            this.audio.setSustainPedal(!this.audio.sustainPedalActive);
-          });
-        }
-
-        const transDown = document.getElementById('transposeDown');
-        if (transDown) transDown.addEventListener('click', () => this.setTranspose(this.transpose - 1));
-        const transUp = document.getElementById('transposeUp');
-        if (transUp) transUp.addEventListener('click', () => this.setTranspose(this.transpose + 1));
-
-        // 直接 BPM 加減控制事件
-        const speedDown = document.getElementById('speedDownBtn');
-        if (speedDown) speedDown.addEventListener('click', () => this.setBpm(this.currentBpm - 2));
-        const speedUp = document.getElementById('speedUpBtn');
-        if (speedUp) speedUp.addEventListener('click', () => this.setBpm(this.currentBpm + 2));
-
-        const speedDown5 = document.getElementById('speedDown5Btn');
-        if (speedDown5) speedDown5.addEventListener('click', () => this.setBpm(this.currentBpm - 5));
-        const speedUp5 = document.getElementById('speedUp5Btn');
-        if (speedUp5) speedUp5.addEventListener('click', () => this.setBpm(this.currentBpm + 5));
-
-        const origBpmBtn = document.getElementById('origBpmBtn');
-        if (origBpmBtn) origBpmBtn.addEventListener('click', () => this.setBpm(this.originalBpm));
-
-        const bpmInput = document.getElementById('bpmInputField');
-        if (bpmInput) {
-          bpmInput.addEventListener('change', (e) => {
-            const val = parseInt(e.target.value, 10);
-            if (!isNaN(val)) this.setBpm(val);
-          });
-          bpmInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') e.target.blur();
-          });
-        }
-
-        const leadMute = document.getElementById('leadMuteToggle');
-        if (leadMute) {
-          leadMute.addEventListener('click', () => {
-            this.audio.leadVocalMuted = !this.audio.leadVocalMuted;
-            const icon = document.getElementById('leadMuteIcon');
-            if (icon) icon.innerText = this.audio.leadVocalMuted ? "🔇" : "🔊";
-          });
-        }
-
-        const presetSel = document.getElementById('presetSelect');
-        if (presetSel) {
-          presetSel.addEventListener('change', (e) => {
-            this.loadPreset(e.target.value);
-          });
-        }
-
-        const midiInput = document.getElementById('midiFileInput');
-        if (midiInput) {
-          midiInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-              const reader = new FileReader();
-              reader.onload = (ev) => {
-                try {
-                  const parsedResult = SimpleMidiParser.parse(ev.target.result);
-                  this.originalBpm = parsedResult.bpm || 120;
-                  this.loadTracks(parsedResult.tracks);
-                  this.updateSpeedUI();
-                  this.openTrackModal();
-                } catch (err) {
-                  console.error("MIDI 載入失敗:", err);
-                }
-              };
-              reader.readAsArrayBuffer(file);
-            }
-          });
-        }
-
-        window.addEventListener('keydown', (e) => {
-          if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
-            e.preventDefault();
-            this.togglePlay();
-          } else if ((e.key === 's' || e.key === 'S') && e.target.tagName !== 'INPUT') {
-            e.preventDefault();
-            this.audio.setSustainPedal(!this.audio.sustainPedalActive);
-          }
-        });
-
-        let isScrubbing = false;
-        const handleScrub = (clientX) => {
-          if (!this.timelineTrack) return;
-          const rect = this.timelineTrack.getBoundingClientRect();
-          const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-          const targetTime = this.timelineStartSec + ratio * this.timelineWindowSec;
-          this.seekTo(targetTime);
-        };
-
-        if (this.timelineContainer) {
-          this.timelineContainer.addEventListener('mousedown', (e) => {
-            isScrubbing = true;
-            handleScrub(e.clientX);
-          });
-        }
-        window.addEventListener('mousemove', (e) => {
-          if (isScrubbing) handleScrub(e.clientX);
-        });
-        window.addEventListener('mouseup', () => {
-          isScrubbing = false;
-        });
-
-        window.addEventListener('wheel', (e) => {
-          if (e.target.closest('#mixerModal') || e.target.closest('#trackModal')) return;
-
-          if (e.ctrlKey) {
-            e.preventDefault();
-            const zoomFactor = Math.exp(e.deltaY * 0.01);
-            const minWindow = 6;
-            const maxWindow = Math.max(16, this.songDuration);
-            const anchorTime = this.currentTime;
-            const currentRatio = this.timelineWindowSec > 0 
-              ? (anchorTime - this.timelineStartSec) / this.timelineWindowSec 
-              : 0.35;
-
-            this.timelineWindowSec = Math.max(minWindow, Math.min(maxWindow, this.timelineWindowSec * zoomFactor));
-            this.timelineStartSec = Math.max(0, Math.min(this.songDuration - this.timelineWindowSec, anchorTime - currentRatio * this.timelineWindowSec));
-
-            this.updateTimelineUI();
-            this.renderTimelineMinimap();
-            return;
-          }
-
-          let delta = 0;
-          if (Math.abs(e.deltaX) > 0.5) delta = e.deltaX;
-          else if (e.shiftKey && Math.abs(e.deltaY) > 0.5) delta = e.deltaY;
-
-          if (Math.abs(delta) > 0.5) {
-            e.preventDefault();
-            const seekDeltaSeconds = (delta / 120) * (this.timelineWindowSec / 25);
-            this.seekTo(this.currentTime + seekDeltaSeconds);
-          }
-        }, { passive: false });
-
-        let initialTouchDistance = null;
-        let initialTouchWindow = null;
-
-        if (this.timelineContainer) {
-          this.timelineContainer.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 2) {
-              const dx = e.touches[0].clientX - e.touches[1].clientX;
-              const dy = e.touches[0].clientY - e.touches[1].clientY;
-              initialTouchDistance = Math.hypot(dx, dy);
-              initialTouchWindow = this.timelineWindowSec;
-            }
-          }, { passive: true });
-
-          this.timelineContainer.addEventListener('touchmove', (e) => {
-            if (e.touches.length === 2 && initialTouchDistance) {
-              e.preventDefault();
-              const dx = e.touches[0].clientX - e.touches[1].clientX;
-              const dy = e.touches[0].clientY - e.touches[1].clientY;
-              const currentDist = Math.hypot(dx, dy);
-              const scale = initialTouchDistance / Math.max(10, currentDist);
-
-              const minWindow = 6;
-              const maxWindow = Math.max(16, this.songDuration);
-              this.timelineWindowSec = Math.max(minWindow, Math.min(maxWindow, initialTouchWindow * scale));
-              this.updateTimelineUI();
-              this.renderTimelineMinimap();
-            }
-          }, { passive: false });
-
-          this.timelineContainer.addEventListener('touchend', () => { initialTouchDistance = null; });
-        }
-
-        const openTrackBtn = document.getElementById('openTrackModalBtn');
-        if (openTrackBtn) openTrackBtn.addEventListener('click', () => this.openTrackModal());
-
-        const closeTrackBtn = document.getElementById('closeTrackModalBtn');
-        if (closeTrackBtn) closeTrackBtn.addEventListener('click', () => this.closeTrackModal());
-
-        const confirmTracksBtn = document.getElementById('confirmTracksBtn');
-        if (confirmTracksBtn) confirmTracksBtn.addEventListener('click', () => {
-          this.applyTrackRoles();
-          this.closeTrackModal();
-        });
-
-        const openMixerBtn = document.getElementById('openMixerModalBtn');
-        if (openMixerBtn) openMixerBtn.addEventListener('click', () => this.openMixerModal());
-
-        const closeMixerBtn = document.getElementById('closeMixerModalBtn');
-        if (closeMixerBtn) closeMixerBtn.addEventListener('click', () => this.closeMixerModal());
-
-        const resetMixerBtn = document.getElementById('resetMixerBtn');
-        if (resetMixerBtn) resetMixerBtn.addEventListener('click', () => this.resetMixer());
+        // 模態框
+        this.libraryModal = document.getElementById("libraryModal");
+        this.libraryCountBadge = document.getElementById("libraryCountBadge");
+        this.libraryListContainer = document.getElementById("libraryListContainer");
       }
 
-      resize() {
-        if (!this.canvas) return;
-        const dpr = window.devicePixelRatio || 1;
-        const rect = this.canvas.getBoundingClientRect();
-        this.canvas.width = rect.width * dpr;
-        this.canvas.height = rect.height * dpr;
-        this.ctx.scale(dpr, dpr);
+      async initLibrary() {
+        await songDB.init();
+        this.renderCloudSongsUI();
+        await this.refreshLibraryUI();
+      }
 
-        if (this.timelineCanvas && this.timelineContainer) {
-          const tRect = this.timelineContainer.getBoundingClientRect();
-          this.timelineCanvas.width = tRect.width * dpr;
-          this.timelineCanvas.height = tRect.height * dpr;
-          this.timelineCtx.scale(dpr, dpr);
+      renderCloudSongsUI() {
+        if (!this.cloudSongGroup) return;
+        this.cloudSongGroup.innerHTML = "";
+        if (CLOUD_SONGS.length === 0) {
+          const opt = document.createElement("option");
+          opt.disabled = true;
+          opt.textContent = "(尚未在 GitHub 加入 .mid)";
+          this.cloudSongGroup.appendChild(opt);
+          return;
+        }
+        CLOUD_SONGS.forEach((s, idx) => {
+          const opt = document.createElement("option");
+          opt.value = "cloud_" + idx;
+          opt.textContent = `☁️ ${s.name}`;
+          this.cloudSongGroup.appendChild(opt);
+        });
+      }
+
+      async loadCloudSong(songMeta) {
+        try {
+          const res = await fetch(songMeta.file);
+          if (!res.ok) throw new Error("無法下載雲端 MIDI 檔案");
+          const buffer = await res.arrayBuffer();
+          const result = SimpleMidiParser.parse(buffer);
+          
+          this.currentSongNotes = JSON.parse(JSON.stringify(result.notes));
+          this.originalBpm = result.bpm || 120;
+          this.originalBpmDisplay.textContent = this.originalBpm;
+          this.setBpm(this.originalBpm);
+
+          const lastNote = this.currentSongNotes[this.currentSongNotes.length - 1];
+          this.songDuration = lastNote ? lastNote.start + lastNote.dur + 2.0 : 20;
+          this.currentTime = 0;
+          this.timeTotal.textContent = this.formatTime(this.songDuration);
           this.renderTimelineMinimap();
+        } catch (err) {
+          console.error("載入雲端歌曲失敗:", err);
+          alert("載入雲端 MIDI 失敗，請確認檔案已上傳至 GitHub！");
         }
       }
 
-      loadPreset(key) {
-        if (!PRESET_SONGS[key]) return;
-        const cloned = JSON.parse(JSON.stringify(PRESET_SONGS[key]));
-        this.originalBpm = key === 'ode' ? 132 : (key === 'birthday' ? 100 : 96);
-        this.currentBpm = this.originalBpm;
-        this.playbackRate = 1.0;
-        this.loadTracks(cloned);
-        this.updateSpeedUI();
-      }
+      async refreshLibraryUI() {
+        const songs = await songDB.getAllSongs();
+        this.libraryCountBadge.textContent = songs.length;
 
-      loadTracks(tracks) {
-        this.tracks = tracks;
-        this.transpose = 0;
-        const transVal = document.getElementById('transposeVal');
-        if (transVal) transVal.innerText = "0";
-
-        let maxTime = 10;
-        for (const tr of this.tracks) {
-          for (const n of tr.notes) {
-            if (n.start + n.dur > maxTime) maxTime = n.start + n.dur;
-          }
-        }
-        this.songDuration = maxTime + 2.5;
-        if (this.timeTotal) this.timeTotal.innerText = this.formatTime(this.songDuration);
-        this.timelineWindowSec = Math.max(16, this.songDuration * 0.55);
-
-        this.currentBpm = this.originalBpm;
-        this.playbackRate = 1.0;
-        this.seekTo(0);
-        this.updateTimelineWindow();
-        this.renderTimelineMinimap();
-      }
-
-      setTranspose(val) {
-        this.transpose = Math.max(-12, Math.min(12, val));
-        const transVal = document.getElementById('transposeVal');
-        if (transVal) transVal.innerText = (this.transpose > 0 ? "+" : "") + this.transpose;
-        this.renderTimelineMinimap();
-      }
-
-      // 直接以 BPM 進行調整 (範圍 40 ~ 280 BPM)
-      setBpm(newBpm) {
-        const clampedBpm = Math.max(40, Math.min(280, Math.round(newBpm)));
-        const targetRate = Math.round((clampedBpm / this.originalBpm) * 100) / 100;
-
-        if (this.isPlaying) {
-          // 動態變速時無縫接軌當前進度時間
-          const elapsedSec = (performance.now() - this.playbackStartWallTime) / 1000;
-          this.currentTime = this.playbackStartSongTime + elapsedSec * this.playbackRate;
-          this.playbackStartWallTime = performance.now();
-          this.playbackStartSongTime = this.currentTime;
-        }
-
-        this.currentBpm = clampedBpm;
-        this.playbackRate = Math.max(0.3, Math.min(2.5, targetRate));
-        this.updateSpeedUI();
-      }
-
-      updateSpeedUI() {
-        const origBpmElem = document.getElementById('originalBpmDisplay');
-        const bpmInput = document.getElementById('bpmInputField');
-        const percentLabel = document.getElementById('speedPercentLabel');
-
-        if (origBpmElem) origBpmElem.innerText = this.originalBpm;
-        if (bpmInput && document.activeElement !== bpmInput) {
-          bpmInput.value = this.currentBpm;
-        }
-        if (percentLabel) {
-          const pct = Math.round((this.currentBpm / this.originalBpm) * 100);
-          percentLabel.innerText = `${pct}%`;
-          percentLabel.className = pct === 100 ? "text-[9px] font-mono text-slate-400 px-1" : "text-[9px] font-mono text-cyan-400 font-bold px-1";
-        }
-      }
-
-      togglePlay() {
-        this.audio.init();
-        if (this.isPlaying) this.pause();
-        else this.play();
-      }
-
-      play() {
-        this.isPlaying = true;
-        this.playbackStartWallTime = performance.now();
-        this.playbackStartSongTime = this.currentTime;
-        if (this.playIcon) this.playIcon.innerText = "⏸";
-        if (this.playText) this.playText.innerText = "暫停 (Space)";
-      }
-
-      pause() {
-        this.isPlaying = false;
-        if (this.playIcon) this.playIcon.innerText = "▶";
-        if (this.playText) this.playText.innerText = "播放 (Space)";
-      }
-
-      seekTo(targetTime) {
-        this.currentTime = Math.max(0, Math.min(targetTime, this.songDuration));
-        this.playbackStartSongTime = this.currentTime;
-        this.playbackStartWallTime = performance.now();
-        
-        if (this.scheduledNotes) {
-          const nextScheduled = new Set();
-          this.tracks.forEach(track => {
-            track.notes.forEach((note, noteIdx) => {
-              const noteKey = `${track.id}_${noteIdx}`;
-              if (note.start < this.currentTime && this.scheduledNotes.has(noteKey)) {
-                nextScheduled.add(noteKey);
-              }
-            });
-          });
-          this.scheduledNotes = nextScheduled;
-        }
-
-        if (this.audio && this.audio.ctx && this.audio.ctx.state === 'suspended' && this.isPlaying) {
-          this.audio.ctx.resume();
-        }
-
-        this.livePitchTrail = [];
-        this.updateTimelineUI();
-        this.renderTimelineMinimap();
-      }
-
-      evaluateSinging(userMidi) {
-        if (userMidi === null) {
-          if (this.judgmentPopup) this.judgmentPopup.style.opacity = '0';
-          return null;
-        }
-
-        const activeSingableNotes = [];
-        this.tracks.forEach(tr => {
-          if (tr.role === 'lead' || tr.role === 'harmony') {
-            tr.notes.forEach(n => {
-              const effMidi = n.midi + this.transpose;
-              if (this.currentTime >= n.start - 0.15 && this.currentTime <= n.start + n.dur + 0.15) {
-                activeSingableNotes.push({ midi: effMidi, role: tr.role, trackName: tr.name });
-              }
-            });
-          }
+        // 清空並重建下拉選單中的自訂歌曲
+        this.customSongGroup.innerHTML = "";
+        songs.forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = "custom_" + s.id;
+          opt.textContent = `📁 ${s.name} (${s.bpm} BPM)`;
+          this.customSongGroup.appendChild(opt);
         });
 
-        if (activeSingableNotes.length === 0) {
-          if (this.judgmentPopup) this.judgmentPopup.style.opacity = '0';
-          return { status: 'SINGING_IDLE', userMidi };
+        // 渲染曲庫彈窗列表
+        this.libraryListContainer.innerHTML = "";
+        if (songs.length === 0) {
+          this.libraryListContainer.innerHTML = `
+            <div class="text-center py-8 text-slate-500 text-xs">
+              目前本機曲庫尚無儲存的歌曲。<br>點擊上方「📁 載入 MIDI」即可存入本設備！
+            </div>`;
+          return;
         }
 
-        let minDiffCents = 9999;
-        let bestTargetMidi = activeSingableNotes[0].midi;
-        let bestRole = activeSingableNotes[0].role;
-
-        activeSingableNotes.forEach(target => {
-          const rawDiff = userMidi - target.midi;
-          const octaves = Math.round(rawDiff / 12);
-          const normalizedDiff = rawDiff - (octaves * 12);
-          const cents = normalizedDiff * 100;
-
-          if (Math.abs(cents) < Math.abs(minDiffCents)) {
-            minDiffCents = cents;
-            bestTargetMidi = target.midi;
-            bestRole = target.role;
-          }
-        });
-
-        let status = 'MISS';
-        let displayText = 'MISS';
-        let colorClass = 'text-rose-500';
-
-        if (Math.abs(minDiffCents) <= 40) {
-          status = 'PERFECT';
-          displayText = 'PERFECT!';
-          colorClass = 'text-cyan-400';
-          this.score += 15;
-          this.combo += 1;
-        } else if (Math.abs(minDiffCents) <= 85) {
-          status = 'GOOD';
-          displayText = 'GOOD';
-          colorClass = 'text-emerald-400';
-          this.score += 8;
-          this.combo += 1;
-        } else if (minDiffCents > 85) {
-          status = 'SHARP';
-          displayText = '太高 ↑ TOO SHARP';
-          colorClass = 'text-rose-400';
-          this.combo = 0;
-        } else {
-          status = 'FLAT';
-          displayText = '太低 ↓ TOO FLAT';
-          colorClass = 'text-sky-400';
-          this.combo = 0;
-        }
-
-        if (this.scoreDisplay) this.scoreDisplay.innerText = this.score;
-        if (this.comboDisplay) this.comboDisplay.innerText = this.combo;
-
-        if (this.judgmentText) {
-          this.judgmentText.innerText = displayText;
-          this.judgmentText.className = `text-xl font-black italic tracking-wider drop-shadow-[0_0_15px_currentColor] ${colorClass}`;
-        }
-        const sign = minDiffCents >= 0 ? "+" : "";
-        if (this.judgmentCents) {
-          this.judgmentCents.innerText = `${sign}${Math.round(minDiffCents)} cents (${bestRole === 'lead' ? '主旋律' : '和聲'})`;
-        }
-        if (this.judgmentPopup) this.judgmentPopup.style.opacity = '1';
-
-        return { status, cents: minDiffCents, targetMidi: bestTargetMidi, role: bestRole };
-      }
-
-      updateTimelineWindow() {
-        if (!this.songDuration) return;
-        let idealStart = this.currentTime - this.timelineWindowSec * 0.35;
-        const maxStart = Math.max(0, this.songDuration - this.timelineWindowSec);
-        this.timelineStartSec = Math.max(0, Math.min(idealStart, maxStart));
-
-        const windowEndSec = Math.min(this.songDuration, this.timelineStartSec + this.timelineWindowSec);
-        if (this.timelineStartLabel) this.timelineStartLabel.innerText = this.formatTime(this.timelineStartSec);
-        if (this.timelineEndLabel) this.timelineEndLabel.innerText = this.formatTime(windowEndSec);
-      }
-
-      renderTimelineMinimap() {
-        if (!this.timelineCtx || !this.timelineCanvas || !this.songDuration) return;
-        const cvs = this.timelineCanvas;
-        const ctx = this.timelineCtx;
-        const rect = cvs.getBoundingClientRect();
-        const w = rect.width;
-        const h = rect.height;
-
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
-        ctx.fillRect(0, 0, w, h);
-
-        const totalPitchRange = MAX_PITCH_DISPLAY - MIN_PITCH_DISPLAY;
-        const winStart = this.timelineStartSec;
-        const winSpan = this.timelineWindowSec;
-
-        const timeToX = (sec) => ((sec - winStart) / winSpan) * w;
-        const midiToMiniY = (m) => {
-          const clamped = Math.max(MIN_PITCH_DISPLAY, Math.min(MAX_PITCH_DISPLAY, m));
-          return h - 8 - ((clamped - MIN_PITCH_DISPLAY) / totalPitchRange) * (h - 16);
-        };
-
-        ctx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
-        ctx.lineWidth = 1;
-        for (let midi = MIN_PITCH_DISPLAY; midi <= MAX_PITCH_DISPLAY; midi += 12) {
-          const ly = midiToMiniY(midi);
-          ctx.beginPath();
-          ctx.moveTo(0, ly);
-          ctx.lineTo(w, ly);
-          ctx.stroke();
-        }
-
-        this.tracks.forEach(track => {
-          if (track.role === 'backing') {
-            ctx.fillStyle = 'rgba(148, 163, 184, 0.3)';
-            track.notes.forEach(n => {
-              if (n.start + n.dur < winStart || n.start > winStart + winSpan) return;
-              const x = timeToX(n.start);
-              const nw = Math.max(3, (n.dur / winSpan) * w);
-              const y = midiToMiniY(n.midi + this.transpose);
-              ctx.fillRect(x, y - 2, nw, 4);
-            });
-          }
-        });
-
-        this.tracks.forEach(track => {
-          if (track.role === 'harmony') {
-            ctx.fillStyle = 'rgba(245, 158, 11, 0.75)';
-            track.notes.forEach(n => {
-              if (n.start + n.dur < winStart || n.start > winStart + winSpan) return;
-              const x = timeToX(n.start);
-              const nw = Math.max(4, (n.dur / winSpan) * w);
-              const y = midiToMiniY(n.midi + this.transpose);
-              ctx.fillRect(x, y - 2.5, nw, 5);
-            });
-          }
-        });
-
-        this.tracks.forEach(track => {
-          if (track.role === 'lead') {
-            track.notes.forEach((n, idx) => {
-              if (n.start + n.dur < winStart || n.start > winStart + winSpan) return;
-              const x = timeToX(n.start);
-              const nw = Math.max(5, (n.dur / winSpan) * w);
-              const effMidi = n.midi + this.transpose;
-              const y = midiToMiniY(effMidi);
-
-              ctx.fillStyle = '#ec4899';
-              ctx.beginPath();
-              ctx.roundRect(x, y - 4, nw, 8, 3);
-              ctx.fill();
-
-              if (nw >= 14 || idx % 2 === 0) {
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 9px monospace';
-                ctx.fillText(midiToName(effMidi), x + 2, y - 5);
-              }
-            });
-          }
-        });
-      }
-
-      updateTimelineUI() {
-        if (!this.timelineProgress || !this.timelineThumb || !this.songDuration) return;
-        const prevStart = this.timelineStartSec;
-        this.updateTimelineWindow();
-
-        if (Math.abs(this.timelineStartSec - prevStart) > 0.05) this.renderTimelineMinimap();
-
-        const winProgress = (this.currentTime - this.timelineStartSec) / this.timelineWindowSec;
-        const clampedRatio = Math.max(0, Math.min(1, winProgress));
-        const percent = (clampedRatio * 100).toFixed(2) + '%';
-
-        this.timelineProgress.style.width = percent;
-        this.timelineThumb.style.left = percent;
-      }
-
-      formatTime(sec) {
-        const m = Math.floor(sec / 60);
-        const s = Math.floor(sec % 60);
-        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-      }
-
-      loop() {
-        if (this.isPlaying) {
-          // 套用變速倍率 (playbackRate)
-          const elapsedSec = (performance.now() - this.playbackStartWallTime) / 1000;
-          this.currentTime = this.playbackStartSongTime + elapsedSec * this.playbackRate;
-
-          if (this.currentTime >= this.songDuration) {
-            this.pause();
-            this.seekTo(0);
-          }
-        }
-
-        if (this.timeCurrent) this.timeCurrent.innerText = this.formatTime(this.currentTime);
-        this.updateTimelineUI();
-
-        if (this.isPlaying) {
-          this.tracks.forEach(track => {
-            track.notes.forEach((note, noteIdx) => {
-              const noteKey = `${track.id}_${noteIdx}`;
-              if (this.currentTime >= note.start && !this.scheduledNotes.has(noteKey)) {
-                // 發聲長度隨變速縮放，確保連音與停頓節奏與跑道視覺完美貼合
-                const scaledDuration = note.dur / this.playbackRate;
-                this.audio.playNote(track, note.midi + this.transpose, scaledDuration, note.vel || 90);
-                this.scheduledNotes.add(noteKey);
-              }
-            });
-          });
-        }
-
-        const micData = this.pitchEngine.getLivePitch();
-        const micBar = document.getElementById('micLevelBar');
-        const pitchLabel = document.getElementById('detectedPitchLabel');
-
-        // 音量條響應靈敏度提高，微小發聲也能看到綠條跳動
-        if (micBar) micBar.style.width = Math.min(100, micData.rms * 1200) + '%';
-        if (pitchLabel) {
-          pitchLabel.innerText = micData.pitch !== null ? midiToName(micData.pitch) : "--";
-        }
-
-        const judgment = this.evaluateSinging(micData.pitch);
-        this.render(micData, judgment);
-
-        requestAnimationFrame(() => this.loop());
-      }
-
-      render(micData, judgment) {
-        const ctx = this.ctx;
-        const rect = this.canvas.getBoundingClientRect();
-        const w = rect.width;
-        const h = rect.height;
-
-        ctx.clearRect(0, 0, w, h);
-
-        const leftRulerWidth = 54;
-        const cursorX = leftRulerWidth + (w - leftRulerWidth) * 0.28;
-        const pxPerSec = (w - leftRulerWidth) / 4.2;
-
-        const totalSemitones = MAX_PITCH_DISPLAY - MIN_PITCH_DISPLAY;
-        const highwayTopOffset = 64;
-        const playableHeight = h - highwayTopOffset;
-
-        const pitchToHighwayY = (midi) => {
-          return highwayTopOffset + (playableHeight - ((midi - MIN_PITCH_DISPLAY) / totalSemitones) * playableHeight);
-        };
-        const highwayNoteHeight = playableHeight / totalSemitones;
-
-        for (let midi = MIN_PITCH_DISPLAY; midi <= MAX_PITCH_DISPLAY; midi++) {
-          const y = pitchToHighwayY(midi + 0.5);
-          const isBlack = [1, 3, 6, 8, 10].includes(((midi % 12) + 12) % 12);
-          const isC = ((midi % 12) + 12) % 12 === 0;
-
-          ctx.fillStyle = isBlack ? 'rgba(15, 23, 42, 0.45)' : 'rgba(30, 41, 59, 0.25)';
-          ctx.fillRect(leftRulerWidth, y, w - leftRulerWidth, highwayNoteHeight);
-
-          ctx.strokeStyle = isC ? 'rgba(56, 189, 248, 0.35)' : 'rgba(51, 65, 85, 0.2)';
-          ctx.lineWidth = isC ? 1.5 : 0.8;
-          ctx.beginPath();
-          ctx.moveTo(leftRulerWidth, y);
-          ctx.lineTo(w, y);
-          ctx.stroke();
-        }
-
-        this.tracks.forEach((track, tIdx) => {
-          if (track.role === 'mute') return;
-          const isLead = track.role === 'lead';
-          const isHarmony = track.role === 'harmony';
-
-          track.notes.forEach(note => {
-            const startX = cursorX + (note.start - this.currentTime) * pxPerSec;
-            const noteW = note.dur * pxPerSec;
-
-            if (startX + noteW < leftRulerWidth || startX > w) return;
-
-            const effectiveMidi = note.midi + this.transpose;
-            const noteY = pitchToHighwayY(effectiveMidi);
-            const clampedH = Math.max(6, highwayNoteHeight - 2);
-
-            if (isLead) {
-              const grad = ctx.createLinearGradient(startX, 0, startX + noteW, 0);
-              grad.addColorStop(0, '#ec4899');
-              grad.addColorStop(1, '#f43f5e');
-
-              ctx.fillStyle = grad;
-              ctx.shadowColor = 'rgba(236, 72, 153, 0.6)';
-              ctx.shadowBlur = 14;
-
-              ctx.beginPath();
-              ctx.roundRect(startX, noteY - clampedH / 2, Math.max(4, noteW - 2), clampedH, 4);
-              ctx.fill();
-              ctx.shadowBlur = 0;
-
-              if (note.lyric) {
-                ctx.save();
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 12px sans-serif';
-                ctx.shadowColor = 'rgba(0,0,0,0.85)';
-                ctx.shadowBlur = 4;
-                ctx.fillText(note.lyric, startX + 4, noteY - clampedH / 2 - 4);
-                ctx.restore();
-              } else if (noteW > 28) {
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 10px monospace';
-                ctx.fillText(midiToName(effectiveMidi), startX + 5, noteY + 3);
-              }
-            } else if (isHarmony) {
-              ctx.save();
-              ctx.fillStyle = tIdx % 2 === 1 ? 'rgba(245, 158, 11, 0.42)' : 'rgba(16, 185, 129, 0.42)';
-              ctx.strokeStyle = tIdx % 2 === 1 ? 'rgba(251, 191, 36, 0.75)' : 'rgba(52, 211, 153, 0.75)';
-              ctx.lineWidth = 1.2;
-
-              ctx.beginPath();
-              ctx.roundRect(startX, noteY - clampedH / 2, Math.max(4, noteW - 2), clampedH, 4);
-              ctx.fill();
-              ctx.stroke();
-
-              if (noteW > 34) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-                ctx.font = 'bold 9px monospace';
-                ctx.fillText(`P${tIdx + 1}:${midiToName(effectiveMidi)}`, startX + 4, noteY + 3);
-              }
-              ctx.restore();
-            } else {
-              ctx.fillStyle = 'rgba(100, 116, 139, 0.18)';
-              ctx.beginPath();
-              ctx.roundRect(startX, noteY - clampedH / 4, Math.max(3, noteW - 2), clampedH / 2, 2);
-              ctx.fill();
-            }
-          });
-        });
-
-        ctx.strokeStyle = 'rgba(6, 182, 212, 0.7)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(cursorX, highwayTopOffset);
-        ctx.lineTo(cursorX, h);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        const nowMs = performance.now();
-        const activeSongTime = this.currentTime;
-
-        // 加權平滑抗跳動濾波 (反應係數提升至 0.42，跟唱極速跟手)
-        if (micData.pitch !== null) {
-          if (this.smoothedVocalMidi === null) {
-            this.smoothedVocalMidi = micData.pitch;
-          } else {
-            const pitchDelta = micData.pitch - this.smoothedVocalMidi;
-            const smoothFactor = Math.abs(pitchDelta) > 2.0 ? 0.65 : 0.42;
-            this.smoothedVocalMidi += pitchDelta * smoothFactor;
-          }
-
-          const vocalY = pitchToHighwayY(this.smoothedVocalMidi);
-          const isAccurate = judgment && (judgment.status === 'PERFECT' || judgment.status === 'GOOD');
-
-          this.livePitchTrail.push({
-            songTime: activeSongTime,
-            wallTime: nowMs,
-            midi: this.smoothedVocalMidi,
-            y: vocalY,
-            accurate: isAccurate,
-            status: judgment ? judgment.status : null
-          });
-        } else {
-          this.smoothedVocalMidi = null;
-          if (this.livePitchTrail.length > 0 && this.livePitchTrail[this.livePitchTrail.length - 1].midi !== null) {
-            this.livePitchTrail.push({
-              songTime: activeSongTime,
-              wallTime: nowMs,
-              midi: null,
-              y: null
-            });
-          }
-        }
-
-        // 大幅縮減歷史軌跡長度，徹底釋放手機 GPU 負擔
-        if (this.isPlaying) {
-          this.livePitchTrail = this.livePitchTrail.filter(p => (this.currentTime - p.songTime) < 3.2);
-        } else {
-          this.livePitchTrail = this.livePitchTrail.filter(p => (nowMs - p.wallTime) < 3200);
-        }
-
-        // 渲染音高歷史軌跡線 (完全移除消耗極大的 shadowBlur，極速流暢)
-        if (this.livePitchTrail.length > 1) {
-          ctx.lineWidth = 3;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-
-          for (let i = 1; i < this.livePitchTrail.length; i++) {
-            const p1 = this.livePitchTrail[i - 1];
-            const p2 = this.livePitchTrail[i];
-
-            if (p1.midi === null || p2.midi === null) continue;
-
-            let x1 = cursorX - (this.currentTime - p1.songTime) * pxPerSec;
-            let x2 = cursorX - (this.currentTime - p2.songTime) * pxPerSec;
-
-            if (x2 < leftRulerWidth || x1 > w) continue;
-
-            if (Math.abs(x2 - x1) < 60 && Math.abs(p2.y - p1.y) < playableHeight * 0.35) {
-              ctx.beginPath();
-              ctx.moveTo(x1, p1.y);
-              ctx.lineTo(x2, p2.y);
-              ctx.strokeStyle = p2.accurate ? '#22c55e' : (p2.status === 'SHARP' ? '#f43f5e' : '#38bdf8');
-              ctx.stroke();
-            }
-          }
-        }
-
-        // 唱針判定光標（改用輕量雙環無陰影繪製，零延遲零掉幀）
-        if (micData.pitch !== null && this.smoothedVocalMidi !== null) {
-          const currentVocalY = pitchToHighwayY(this.smoothedVocalMidi);
-
-          ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([3, 4]);
-          ctx.beginPath();
-          ctx.moveTo(leftRulerWidth, currentVocalY);
-          ctx.lineTo(w, currentVocalY);
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          ctx.save();
-          const haloColor = judgment && judgment.status === 'PERFECT' ? 'rgba(6, 182, 212, 0.3)' : 'rgba(34, 197, 94, 0.3)';
-          const coreColor = judgment && judgment.status === 'PERFECT' ? '#06b6d4' : (judgment && judgment.status === 'SHARP' ? '#f43f5e' : '#22c55e');
-
-          // 外光環
-          ctx.fillStyle = haloColor;
-          ctx.beginPath();
-          ctx.arc(cursorX, currentVocalY, 10, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 核心實心光球
-          ctx.fillStyle = coreColor;
-          ctx.beginPath();
-          ctx.arc(cursorX, currentVocalY, 5, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 中心白點
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(cursorX, currentVocalY, 2, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 核心實心光球
-          ctx.fillStyle = coreColor;
-          ctx.beginPath();
-          ctx.arc(cursorX, currentVocalY, 6, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 中心白點
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(cursorX, currentVocalY, 2.5, 0, Math.PI * 2);
-          ctx.fill();
-
-          let currentLyric = "";
-          this.tracks.forEach(tr => {
-            if (tr.role === 'lead') {
-              tr.notes.forEach(n => {
-                if (n.lyric && this.currentTime >= n.start - 0.05 && this.currentTime <= n.start + n.dur + 0.1) {
-                  currentLyric = n.lyric;
-                }
-              });
-            }
-          });
-
-          if (currentLyric) {
-            ctx.font = 'bold 15px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(currentLyric, cursorX, currentVocalY - 14);
-            ctx.textAlign = 'left';
-          }
-
-          if (judgment && judgment.targetMidi) {
-            const targetY = pitchToHighwayY(judgment.targetMidi);
-            ctx.strokeStyle = judgment.cents > 0 ? 'rgba(244, 63, 94, 0.8)' : 'rgba(56, 189, 248, 0.8)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(cursorX + 14, currentVocalY);
-            ctx.lineTo(cursorX + 14, targetY);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-
-        // =============================== 左側鋼琴音階尺規 (Piano Roll Ruler) ===============================
-        ctx.fillStyle = '#090d16';
-        ctx.fillRect(0, 0, leftRulerWidth, h);
-
-        ctx.strokeStyle = '#1e293b';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(leftRulerWidth, 0);
-        ctx.lineTo(leftRulerWidth, h);
-        ctx.stroke();
-
-        for (let midi = MIN_PITCH_DISPLAY; midi <= MAX_PITCH_DISPLAY; midi++) {
-          const y = pitchToHighwayY(midi + 0.5);
-          const isBlack = [1, 3, 6, 8, 10].includes(((midi % 12) + 12) % 12);
-          const isC = ((midi % 12) + 12) % 12 === 0;
-
-          if (isBlack) {
-            ctx.fillStyle = '#0f172a';
-            ctx.fillRect(0, y, leftRulerWidth - 10, highwayNoteHeight);
-          } else {
-            ctx.fillStyle = '#1e293b';
-            ctx.fillRect(0, y, leftRulerWidth - 2, highwayNoteHeight);
-          }
-
-          if (isC || midi % 12 === 7) {
-            ctx.fillStyle = isC ? '#38bdf8' : '#64748b';
-            ctx.font = isC ? 'bold 10px monospace' : '9px monospace';
-            ctx.fillText(midiToName(midi), 4, y + highwayNoteHeight - 2);
-          }
-        }
-      }
-
-      // =============================== 音軌設定與混音器模態視窗邏輯 ===============================
-      openTrackModal() {
-        const modal = document.getElementById('trackModal');
-        const container = document.getElementById('trackListContainer');
-        if (!modal || !container) return;
-
-        container.innerHTML = '';
-        this.tracks.forEach((tr, idx) => {
-          const card = document.createElement('div');
-          card.className = 'bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/80 flex items-center justify-between gap-3';
-          card.innerHTML = `
-            <div class="flex-1 min-w-0">
-              <div class="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full ${tr.role === 'lead' ? 'bg-pink-500' : (tr.role === 'harmony' ? 'bg-amber-400' : 'bg-slate-500')}"></span>
-                ${tr.name || '軌道 ' + (idx + 1)}
+        songs.forEach((song) => {
+          const item = document.createElement("div");
+          item.className = "flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60";
+          item.innerHTML = `
+            <div class="flex-1 truncate mr-3">
+              <div class="text-xs font-bold text-white truncate">${song.name}</div>
+              <div class="text-[10px] text-slate-400 font-mono mt-0.5">
+                速度: <span class="text-amber-300 font-bold">${song.bpm} BPM</span> · 音符: ${song.notes.length} 個 · 存於: ${song.savedAt}
               </div>
-              <div class="text-[10px] text-slate-400 mt-0.5">${tr.notes.length} 個音符 · 預設音色: ${tr.instrument}</div>
             </div>
-            <div class="flex items-center gap-2">
-              <select class="track-role-sel bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1.5 focus:border-pink-500 focus:outline-none" data-idx="${idx}">
-                <option value="lead" ${tr.role === 'lead' ? 'selected' : ''}>🎤 主旋律 (Lead)</option>
-                <option value="harmony" ${tr.role === 'harmony' ? 'selected' : ''}>✨ 二部和聲 (Harmony)</option>
-                <option value="backing" ${tr.role === 'backing' ? 'selected' : ''}>🎹 伴奏 (Backing)</option>
-                <option value="mute" ${tr.role === 'mute' ? 'selected' : ''}>🔇 靜音 (Mute)</option>
-              </select>
-            </div>
-          `;
-          container.appendChild(card);
-        });
-
-        modal.classList.remove('hidden');
-      }
-
-      closeTrackModal() {
-        const modal = document.getElementById('trackModal');
-        if (modal) modal.classList.add('hidden');
-      }
-
-      applyTrackRoles() {
-        const selects = document.querySelectorAll('.track-role-sel');
-        selects.forEach(sel => {
-          const idx = parseInt(sel.getAttribute('data-idx'));
-          if (this.tracks[idx]) {
-            this.tracks[idx].role = sel.value;
-          }
-        });
-        this.renderTimelineMinimap();
-      }
-
-      openMixerModal() {
-        const modal = document.getElementById('mixerModal');
-        const container = document.getElementById('mixerListContainer');
-        if (!modal || !container) return;
-
-        container.innerHTML = '';
-        this.tracks.forEach((tr, idx) => {
-          const row = document.createElement('div');
-          row.className = 'bg-slate-800/80 p-3 rounded-xl border border-slate-700/80 flex items-center justify-between gap-3';
-          row.innerHTML = `
-            <div class="w-32 sm:w-44 truncate">
-              <div class="text-xs font-bold text-slate-200 truncate">${tr.name}</div>
-              <span class="text-[9px] px-1.5 py-0.5 rounded ${tr.role === 'lead' ? 'bg-pink-500/20 text-pink-300' : 'bg-slate-700 text-slate-400'}">${tr.role}</span>
-            </div>
-            <div class="flex-1 flex items-center gap-2 mx-2">
-              <input type="range" min="0" max="1.5" step="0.05" value="${tr.volume}" data-idx="${idx}" class="mixer-vol-slider w-full accent-pink-500 cursor-pointer">
-              <span class="text-[10px] font-mono text-slate-400 w-9 text-right" id="volVal_${idx}">${Math.round(tr.volume * 100)}%</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <select class="mixer-inst-sel bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1" data-idx="${idx}">
-                <option value="piano" ${tr.instrument === 'piano' ? 'selected' : ''}>大三角鋼琴</option>
-                <option value="strings" ${tr.instrument === 'strings' ? 'selected' : ''}>管弦弦樂</option>
-                <option value="bass" ${tr.instrument === 'bass' ? 'selected' : ''}>合成貝斯</option>
-                <option value="guitar" ${tr.instrument === 'guitar' ? 'selected' : ''}>原聲吉他</option>
-              </select>
-              <button class="mixer-mute-btn px-2 py-1 text-xs rounded border ${tr.isMuted ? 'bg-rose-500 text-white border-rose-400' : 'bg-slate-700 text-slate-300 border-slate-600'}" data-idx="${idx}">
-                靜音
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button class="load-btn px-3 py-1 bg-pink-500 hover:bg-pink-400 active:scale-95 text-white rounded-lg text-xs font-semibold shadow">
+                載入開唱
+              </button>
+              <!-- 垃圾桶刪除按鈕 -->
+              <button class="del-btn px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 rounded-lg text-xs font-semibold border border-rose-500/30 active:scale-95 transition-all" title="從本機刪除此曲">
+                🗑️ 刪除
               </button>
             </div>
           `;
-          container.appendChild(row);
-        });
 
-        // 監聽混音器事件
-        container.querySelectorAll('.mixer-vol-slider').forEach(slider => {
-          slider.addEventListener('input', (e) => {
-            const idx = parseInt(e.target.getAttribute('data-idx'));
-            const val = parseFloat(e.target.value);
-            if (this.tracks[idx]) {
-              this.tracks[idx].volume = val;
-              const gainNode = this.audio.getTrackGain(this.tracks[idx].id);
-              if (gainNode) gainNode.gain.setValueAtTime(val, this.audio.ctx.currentTime);
-              const label = document.getElementById(`volVal_${idx}`);
-              if (label) label.innerText = `${Math.round(val * 100)}%`;
+          item.querySelector(".load-btn").addEventListener("click", () => {
+            this.loadCustomSong(song);
+            this.libraryModal.classList.add("hidden");
+          });
+
+          // 刪除處理
+          item.querySelector(".del-btn").addEventListener("click", async () => {
+            const confirmed = window.confirm(`確定要從本設備徹底刪除《${song.name}》嗎？`);
+            if (confirmed) {
+              await songDB.deleteSong(song.id);
+              await this.refreshLibraryUI();
             }
           });
-        });
 
-        container.querySelectorAll('.mixer-inst-sel').forEach(sel => {
-          sel.addEventListener('change', (e) => {
-            const idx = parseInt(e.target.getAttribute('data-idx'));
-            if (this.tracks[idx]) {
-              this.tracks[idx].instrument = e.target.value;
-            }
-          });
+          this.libraryListContainer.appendChild(item);
         });
-
-        container.querySelectorAll('.mixer-mute-btn').forEach(btn => {
-          btn.addEventListener('click', (e) => {
-            const idx = parseInt(e.target.getAttribute('data-idx'));
-            if (this.tracks[idx]) {
-              this.tracks[idx].isMuted = !this.tracks[idx].isMuted;
-              e.target.className = `mixer-mute-btn px-2 py-1 text-xs rounded border ${this.tracks[idx].isMuted ? 'bg-rose-500 text-white border-rose-400' : 'bg-slate-700 text-slate-300 border-slate-600'}`;
-            }
-          });
-        });
-
-        modal.classList.remove('hidden');
       }
 
-      closeMixerModal() {
-        const modal = document.getElementById('mixerModal');
-        if (modal) modal.classList.add('hidden');
+      setBpm(newBpm) {
+        newBpm = Math.max(40, Math.min(280, Math.round(newBpm)));
+        this.currentBpm = newBpm;
+        this.playbackRate = this.currentBpm / this.originalBpm;
+        this.bpmInputField.value = this.currentBpm;
+        const percent = Math.round(this.playbackRate * 100);
+        this.speedPercentLabel.textContent = `${percent}%`;
       }
 
-      resetMixer() {
-        this.tracks.forEach((tr, idx) => {
-          tr.volume = 1.0;
-          tr.isMuted = false;
-          const gainNode = this.audio.getTrackGain(tr.id);
-          if (gainNode && this.audio.ctx) gainNode.gain.setValueAtTime(1.0, this.audio.ctx.currentTime);
+      loadPreset(key) {
+        const p = PRESETS[key];
+        if (!p) return;
+        this.currentSongNotes = JSON.parse(JSON.stringify(p.notes));
+        this.originalBpm = p.bpm || 120;
+        this.originalBpmDisplay.textContent = this.originalBpm;
+        this.setBpm(this.originalBpm);
+
+        const lastNote = this.currentSongNotes[this.currentSongNotes.length - 1];
+        this.songDuration = lastNote ? lastNote.start + lastNote.dur + 2.0 : 20;
+        this.currentTime = 0;
+        this.timeTotal.textContent = this.formatTime(this.songDuration);
+        this.renderTimelineMinimap();
+      }
+
+      loadCustomSong(song) {
+        this.currentSongNotes = JSON.parse(JSON.stringify(song.notes));
+        this.originalBpm = song.bpm || 120;
+        this.originalBpmDisplay.textContent = this.originalBpm;
+        this.setBpm(this.originalBpm);
+
+        const lastNote = this.currentSongNotes[this.currentSongNotes.length - 1];
+        this.songDuration = lastNote ? lastNote.start + lastNote.dur + 2.0 : 20;
+        this.currentTime = 0;
+        this.timeTotal.textContent = this.formatTime(this.songDuration);
+
+        // 同步下拉選單選取值
+        this.presetSelect.value = "custom_" + song.id;
+        this.renderTimelineMinimap();
+      }
+
+      initEvents() {
+        // 首次點擊開始麥克風覆蓋層
+        document.getElementById("startMicBtn").addEventListener("click", async () => {
+          const ok = await this.pitchEngine.initMic();
+          if (ok) {
+            await this.audioEngine.init();
+            document.getElementById("micPromptOverlay").classList.add("hidden");
+          }
         });
-        this.openMixerModal();
+
+        // 靈敏度選單
+        document.getElementById("micSensitivitySelect").addEventListener("change", (e) => {
+          this.pitchEngine.setSensitivity(e.target.value);
+        });
+
+        // 播放與暫停
+        this.playPauseBtn.addEventListener("click", () => this.togglePlay());
+        this.rewindBtn.addEventListener("click", () => {
+          this.currentTime = 0;
+          this.userTrail = [];
+        });
+
+        // BPM 按鈕事件
+        this.speedDownBtn.addEventListener("click", () => this.setBpm(this.currentBpm - 2));
+        this.speedUpBtn.addEventListener("click", () => this.setBpm(this.currentBpm + 2));
+        this.speedDown5Btn.addEventListener("click", () => this.setBpm(this.currentBpm - 5));
+        this.speedUp5Btn.addEventListener("click", () => this.setBpm(this.currentBpm + 5));
+        this.origBpmBtn.addEventListener("click", () => this.setBpm(this.originalBpm));
+        this.bpmInputField.addEventListener("change", (e) => this.setBpm(Number(e.target.value)));
+
+        // 移調事件
+        document.getElementById("transposeDown").addEventListener("click", () => {
+          this.transpose--;
+          this.transposeVal.textContent = this.transpose > 0 ? "+" + this.transpose : this.transpose;
+        });
+        document.getElementById("transposeUp").addEventListener("click", () => {
+          this.transpose++;
+          this.transposeVal.textContent = this.transpose > 0 ? "+" + this.transpose : this.transpose;
+        });
+
+        // 導音開關
+        this.leadMuteToggle.addEventListener("click", () => {
+          this.audioEngine.isMuted = !this.audioEngine.isMuted;
+          this.leadMuteIcon.textContent = this.audioEngine.isMuted ? "🔇" : "🔊";
+          this.leadMuteToggle.classList.toggle("text-rose-400", this.audioEngine.isMuted);
+        });
+
+        // 下拉選單選擇歌曲
+        this.presetSelect.addEventListener("change", async (e) => {
+          const val = e.target.value;
+          if (val.startsWith("cloud_")) {
+            const idx = parseInt(val.replace("cloud_", ""), 10);
+            if (CLOUD_SONGS[idx]) this.loadCloudSong(CLOUD_SONGS[idx]);
+          } else if (val.startsWith("custom_")) {
+            const id = val.replace("custom_", "");
+            const songs = await songDB.getAllSongs();
+            const found = songs.find((s) => s.id === id);
+            if (found) this.loadCustomSong(found);
+          } else {
+            this.loadPreset(val);
+          }
+        });
+
+        // 曲庫模態框開關
+        document.getElementById("openLibraryModalBtn").addEventListener("click", () => {
+          this.refreshLibraryUI();
+          this.libraryModal.classList.remove("hidden");
+        });
+        document.getElementById("closeLibraryModalBtn").addEventListener("click", () => {
+          this.libraryModal.classList.add("hidden");
+        });
+        document.getElementById("closeLibraryModalBottomBtn").addEventListener("click", () => {
+          this.libraryModal.classList.add("hidden");
+        });
+
+        // 載入 MIDI 檔案並存入本地虛擬資料庫
+        document.getElementById("midiFileInput").addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          try {
+            const buffer = await file.arrayBuffer();
+            const result = SimpleMidiParser.parse(buffer);
+
+            if (result.notes.length === 0) {
+              alert("未能在檔案中讀取到音符事件！");
+              return;
+            }
+
+            const newSong = {
+              id: "song_" + Date.now(),
+              name: file.name.replace(/\.(mid|midi)$/i, ""),
+              bpm: result.bpm,
+              notes: result.notes,
+              savedAt: new Date().toLocaleDateString()
+            };
+
+            // 存入本機 IndexedDB 虛擬資料庫
+            await songDB.saveSong(newSong);
+            await this.refreshLibraryUI();
+            this.loadCustomSong(newSong);
+          } catch (err) {
+            console.error("MIDI 解析錯誤:", err);
+            alert("MIDI 檔案格式有誤或無法解析！");
+          }
+        });
+
+        // 時間軸點擊跳轉
+        document.getElementById("timelineTrack").addEventListener("click", (e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+          this.currentTime = ratio * this.songDuration;
+        });
+
+        // 其他模態框
+        document.getElementById("openTrackModalBtn").addEventListener("click", () => {
+          document.getElementById("trackModal").classList.remove("hidden");
+        });
+        document.getElementById("closeTrackModalBtn").addEventListener("click", () => {
+          document.getElementById("trackModal").classList.add("hidden");
+        });
+        document.getElementById("confirmTracksBtn").addEventListener("click", () => {
+          document.getElementById("trackModal").classList.add("hidden");
+        });
+
+        document.getElementById("openMixerModalBtn").addEventListener("click", () => {
+          document.getElementById("mixerModal").classList.remove("hidden");
+        });
+        document.getElementById("closeMixerModalBtn").addEventListener("click", () => {
+          document.getElementById("mixerModal").classList.add("hidden");
+        });
+      }
+
+      togglePlay() {
+        this.isPlaying = !this.isPlaying;
+        if (this.isPlaying) {
+          this.playIcon.textContent = "⏸";
+          this.playText.textContent = "暫停";
+          this.playPauseBtn.classList.replace("bg-pink-500", "bg-amber-500");
+          this.audioEngine.init();
+        } else {
+          this.playIcon.textContent = "▶";
+          this.playText.textContent = "播放";
+          this.playPauseBtn.classList.replace("bg-amber-500", "bg-pink-500");
+        }
+      }
+
+      formatTime(sec) {
+        const m = Math.floor(sec / 60).toString().padStart(2, "0");
+        const s = Math.floor(sec % 60).toString().padStart(2, "0");
+        return `${m}:${s}`;
+      }
+
+      resize() {
+        this.canvas.width = this.canvas.clientWidth * window.devicePixelRatio;
+        this.canvas.height = this.canvas.clientHeight * window.devicePixelRatio;
+
+        this.timelineCanvas.width = this.timelineCanvas.clientWidth * window.devicePixelRatio;
+        this.timelineCanvas.height = this.timelineCanvas.clientHeight * window.devicePixelRatio;
+
+        this.renderTimelineMinimap();
+      }
+
+      renderTimelineMinimap() {
+        const w = this.timelineCanvas.width;
+        const h = this.timelineCanvas.height;
+        this.tCtx.clearRect(0, 0, w, h);
+
+        if (!this.currentSongNotes.length) return;
+
+        this.tCtx.fillStyle = "rgba(244, 63, 94, 0.4)";
+        this.currentSongNotes.forEach((n) => {
+          const x = (n.start / this.songDuration) * w;
+          const noteW = Math.max(2, (n.dur / this.songDuration) * w);
+          const y = h - ((n.midi - this.minMidi) / (this.maxMidi - this.minMidi)) * h;
+          this.tCtx.fillRect(x, y - 2, noteW, 4);
+        });
+      }
+
+      renderLoop(timestamp) {
+        if (!this.lastFrameTime) this.lastFrameTime = timestamp;
+        const delta = (timestamp - this.lastFrameTime) / 1000;
+        this.lastFrameTime = timestamp;
+
+        // 播放時間推進（依據 playbackRate 變速）
+        if (this.isPlaying) {
+          this.currentTime += delta * this.playbackRate;
+          if (this.currentTime >= this.songDuration) {
+            this.currentTime = this.songDuration;
+            this.togglePlay();
+          }
+        }
+
+        // 採樣麥克風音高
+        const pitchData = this.pitchEngine.detect();
+
+        // 更新頂部麥克風視覺反饋
+        if (pitchData.rms > 0) {
+          const pct = Math.min(100, Math.round(pitchData.rms * 600));
+          this.micLevelBar.style.width = pct + "%";
+        } else {
+          this.micLevelBar.style.width = "0%";
+        }
+
+        if (pitchData.note) {
+          this.detectedPitchLabel.textContent = pitchData.note;
+        } else {
+          this.detectedPitchLabel.textContent = "--";
+        }
+
+        // 記錄使用者音準點
+        if (this.isPlaying && pitchData.midi) {
+          this.userTrail.push({
+            time: this.currentTime,
+            midi: pitchData.midi - this.transpose
+          });
+        }
+
+        // 清理超時軌跡
+        if (this.userTrail.length > 250) this.userTrail.shift();
+
+        // 渲染畫面
+        this.renderCanvas(pitchData);
+        this.updateTimelineProgress();
+
+        requestAnimationFrame((t) => this.renderLoop(t));
+      }
+
+      updateTimelineProgress() {
+        const ratio = Math.min(1, Math.max(0, this.currentTime / this.songDuration));
+        const progressEl = document.getElementById("timelineProgress");
+        const thumbEl = document.getElementById("timelineThumb");
+        if (progressEl) progressEl.style.width = `${ratio * 100}%`;
+        if (thumbEl) thumbEl.style.left = `${ratio * 100}%`;
+        this.timeCurrent.textContent = this.formatTime(this.currentTime);
+      }
+
+      renderCanvas(pitchData) {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const ctx = this.ctx;
+
+        ctx.clearRect(0, 0, w, h);
+
+        const targetX = w * 0.25; // 當前唱針 X 座標
+        const pixelsPerSecond = (w * 0.75) / this.viewWindowSeconds;
+
+        // 1. 繪製背景鋼琴網格
+        const noteRange = this.maxMidi - this.minMidi;
+        const rowHeight = h / noteRange;
+
+        for (let m = this.minMidi; m <= this.maxMidi; m++) {
+          const y = h - (m - this.minMidi) * rowHeight;
+          const isBlack = [1, 3, 6, 8, 10].includes(m % 12);
+
+          ctx.fillStyle = isBlack ? "rgba(15, 23, 42, 0.4)" : "rgba(30, 41, 59, 0.2)";
+          ctx.fillRect(0, y - rowHeight, w, rowHeight);
+
+          ctx.strokeStyle = "rgba(51, 65, 85, 0.25)";
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+
+          // 標記 C 調
+          if (m % 12 === 0) {
+            ctx.fillStyle = "rgba(148, 163, 184, 0.6)";
+            ctx.font = `${Math.max(10, rowHeight * 0.6)}px monospace`;
+            ctx.fillText(`C${Math.floor(m / 12) - 1}`, 10, y - 4);
+          }
+        }
+
+        // 2. 繪製主旋律跑道
+        let currentTargetMidi = null;
+
+        this.currentSongNotes.forEach((note) => {
+          const noteMidi = note.midi + this.transpose;
+          const startX = targetX + (note.start - this.currentTime) * pixelsPerSecond;
+          const noteW = note.dur * pixelsPerSecond;
+          const noteY = h - (noteMidi - this.minMidi) * rowHeight;
+
+          if (startX + noteW > 0 && startX < w) {
+            // 音條本體
+            ctx.fillStyle = "rgba(244, 63, 94, 0.85)";
+            ctx.beginPath();
+            ctx.roundRect(startX, noteY - rowHeight + 2, noteW, rowHeight - 4, 4);
+            ctx.fill();
+
+            // 邊框
+            ctx.strokeStyle = "#fda4af";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // 檢查是否正在唱此音
+            if (this.currentTime >= note.start && this.currentTime <= note.start + note.dur) {
+              currentTargetMidi = noteMidi;
+              // 伴奏導音發聲
+              if (this.isPlaying && !this.audioEngine.isMuted) {
+                // 節流發聲
+                if (!note._played) {
+                  this.audioEngine.playNote(noteMidi, note.dur, "lead");
+                  note._played = true;
+                }
+              }
+            } else if (this.currentTime < note.start) {
+              note._played = false;
+            }
+          }
+        });
+
+        // 3. 繪製使用者歌唱軌跡線
+        if (this.userTrail.length > 1) {
+          ctx.beginPath();
+          ctx.strokeStyle = "#38bdf8";
+          ctx.lineWidth = 3;
+          ctx.lineCap = "round";
+
+          for (let i = 0; i < this.userTrail.length; i++) {
+            const p = this.userTrail[i];
+            const px = targetX + (p.time - this.currentTime) * pixelsPerSecond;
+            const py = h - (p.midi - this.minMidi) * rowHeight - rowHeight * 0.5;
+
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        }
+
+        // 4. 繪製當前判定唱針 (Target Bar)
+        ctx.strokeStyle = "rgba(244, 63, 94, 0.7)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(targetX, 0);
+        ctx.lineTo(targetX, h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 5. 繪製使用者即時音準光點
+        if (pitchData.midi) {
+          const userMidi = pitchData.midi;
+          const userY = h - (userMidi - this.minMidi) * rowHeight - rowHeight * 0.5;
+
+          // 外光環
+          ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
+          ctx.beginPath();
+          ctx.arc(targetX, userY, 14, 0, Math.PI * 2);
+          ctx.fill();
+
+          // 核心光點
+          ctx.fillStyle = "#38bdf8";
+          ctx.beginPath();
+          ctx.arc(targetX, userY, 7, 0, Math.PI * 2);
+          ctx.fill();
+
+          // 計分判定
+          if (currentTargetMidi) {
+            const diff = Math.abs(userMidi - currentTargetMidi);
+            if (diff < 0.6) {
+              this.score += 2;
+              this.combo++;
+            } else if (diff < 1.2) {
+              this.score += 1;
+            } else {
+              this.combo = 0;
+            }
+            this.scoreDisplay.textContent = this.score;
+            this.comboDisplay.textContent = this.combo;
+          }
+        }
       }
     }
 
-    // 啟動主引擎實例
-    window.addEventListener('load', () => {
-      window.gameApp = new GameEngine();
+    // 啟動主程式
+    window.addEventListener("load", () => {
+      new KTVApp();
     });
   </script>
 </body>
