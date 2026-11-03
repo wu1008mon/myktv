@@ -5,514 +5,672 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Web KTV Pitch Game (離線版)</title>
   
-  <!-- 載入 Tailwind CSS 樣式庫（修復畫面跑版成純文字問題） -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- PWA & 移动端全屏元标签 (iOS Safari & Android Chrome) -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="KTV Pitch (離線版)">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#020617">
-
-  <!-- 內嵌 Web App Manifest (支援免憑證直接安裝到桌面) -->
-  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Web%20KTV%20Pitch%20Master%20(%E9%9B%A2%E7%B7%9A%E7%89%88)%22%2C%22short_name%22%3A%22KTV%E9%9B%A2%E7%B7%9A%E7%89%88%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22orientation%22%3A%22landscape%22%2C%22background_color%22%3A%22%23020617%22%2C%22theme_color%22%3A%22%23020617%22%7D">
-
+  <!-- 徹底移除任何外部 Tailwind CDN 依賴，使用 100% 內嵌 CSS，杜絕斷網或 CDN 失效導致的文字排版崩潰 -->
   <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    /* ================================= 基礎與重置樣式 ================================= */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #020617;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       user-select: none;
       -webkit-user-select: none;
       touch-action: manipulation;
+    }
+    .font-mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* ================================= 佈局結構 ================================= */
+    #appRoot {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
       padding-left: env(safe-area-inset-left);
       padding-right: env(safe-area-inset-right);
     }
-    .font-mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* 頂部整合控制列 */
+    header.ktv-header {
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid rgba(51, 65, 85, 0.8);
+      padding: 6px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+      z-index: 30;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
     }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
-    ::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 1); }
-    /* 隱藏頂部橫向滾動條但保持可滾動 */
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    .top-bar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .btn-scroll-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      white-space: nowrap;
+      padding: 2px 0;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .btn-scroll-row::-webkit-scrollbar { display: none; }
+
+    /* ================================= UI 元件與按鈕風格 ================================= */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      outline: none;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      background: #1e293b;
+      color: #e2e8f0;
+      border-color: #334155;
+    }
+    .btn:active { transform: scale(0.95); }
+
+    .btn-primary {
+      background: #ec4899;
+      color: #fff;
+      border-color: #f472b6;
+      box-shadow: 0 0 10px rgba(236, 72, 153, 0.4);
+    }
+    .btn-primary:hover { background: #f43f5e; }
+
+    .btn-amber {
+      background: #f59e0b;
+      color: #fff;
+      border-color: #fbbf24;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+    }
+
+    .btn-indigo {
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #fff;
+      border-color: #818cf8;
+    }
+
+    .select-dark {
+      height: 32px;
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 0 10px;
+      font-size: 11px;
+      font-weight: 600;
+      outline: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .select-dark:focus { border-color: #ec4899; }
+
+    /* 速度微調輸入與標籤 */
+    .bpm-box {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 2px 6px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+    .bpm-box input {
+      width: 44px;
+      background: #090d16;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #38bdf8;
+      text-align: center;
+      font-weight: bold;
+      font-size: 11px;
+      outline: none;
+    }
+
+    /* 頂部時間軸微縮圖 */
+    #timelineContainer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 52px;
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid rgba(51, 65, 85, 0.9);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    #timelineTrack {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    #timelineCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #timelineProgress {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 0%;
+      background: rgba(6, 182, 212, 0.18);
+      border-right: 2px solid #06b6d4;
+      pointer-events: none;
+    }
+    #timelineThumb {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      margin-left: -3px;
+      background: #38bdf8;
+      box-shadow: 0 0 10px #06b6d4;
+      pointer-events: none;
+    }
+
+    /* 主畫布 */
+    #mainView {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #020617;
+    }
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 倒數動畫覆蓋層 */
+    #countInOverlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 25;
+      background: rgba(2, 6, 23, 0.4);
+      backdrop-filter: blur(2px);
+      transition: opacity 0.2s ease;
+    }
+    #countInOverlay.hidden { display: none; }
+    #countInNumber {
+      font-size: 88px;
+      font-weight: 900;
+      font-style: italic;
+      color: #38bdf8;
+      text-shadow: 0 0 30px rgba(56, 189, 248, 0.8), 0 0 60px rgba(56, 189, 248, 0.4);
+      transform: scale(1);
+      animation: pulsePop 0.4s ease-out;
+    }
+    #countInSub {
+      font-size: 14px;
+      color: #cbd5e1;
+      letter-spacing: 2px;
+      margin-top: 8px;
+      font-weight: 700;
+    }
+
+    @keyframes pulsePop {
+      0% { transform: scale(0.6); opacity: 0; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* 彈窗樣式 */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.85);
+      backdrop-filter: blur(5px);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.hidden { display: none; }
+    .modal-dialog {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 520px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-body {
+      padding: 14px 18px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-footer {
+      padding: 10px 18px;
+      border-top: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.6);
+    }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 h-screen w-screen overflow-hidden flex flex-col">
+<body>
+  <div id="appRoot">
 
-  <!-- =============================== 頂部整合控制列（所有功能集中於頂部，手機不被擋） =============================== -->
-  <header class="bg-slate-900/95 border-b border-slate-800 px-3 py-2 z-20 backdrop-blur-md flex-shrink-0 flex flex-col gap-1.5 shadow-lg">
-    <!-- 第一行：品牌、麥克風、計分板與主要狀態 -->
-    <div class="flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <div class="w-7 h-7 rounded-lg bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-400 flex items-center justify-center text-white text-xs shadow-md shadow-pink-500/20">
-          🎤
-        </div>
-        <div class="leading-none">
-          <div class="text-xs font-bold tracking-wide flex items-center gap-1.5">
-            KTV PITCH MASTER
-            <span class="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">離線版</span>
+    <!-- =============================== 頂部控制列（所有功能居頂） =============================== -->
+    <header class="ktv-header">
+      <!-- 第一行：品牌、麥克風、節拍指示、評分 -->
+      <div class="top-bar-row">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 26px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, #ec4899, #f43f5e); display: flex; align-items: center; justify-content: center; font-size: 13px;">
+            🎤
           </div>
-          <span class="text-[9px] text-slate-400 font-mono">C2-C6 (4 Octaves)</span>
+          <div>
+            <div style="font-size: 12px; font-weight: 800; display: flex; align-items: center; gap: 6px;">
+              <span>KTV PITCH MASTER</span>
+              <span style="font-size: 9px; padding: 1px 4px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399; border-radius: 4px;">純離線版</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 麥克風音量與偵測 -->
+        <div style="display: flex; align-items: center; gap: 6px; background: #1e293b; padding: 3px 8px; border-radius: 8px; border: 1px solid #334155;">
+          <button id="micToggleBtn" style="border: none; background: #ec4899; color: white; width: 20px; height: 20px; border-radius: 4px; font-size: 10px; cursor: pointer;">🎤</button>
+          <div style="width: 50px; height: 6px; background: #090d16; border-radius: 4px; overflow: hidden;">
+            <div id="micLevelBar" style="width: 0%; height: 100%; background: #34d399; transition: width 0.08s;"></div>
+          </div>
+          <span id="detectedPitchLabel" class="font-mono" style="font-size: 11px; font-weight: bold; color: #34d399; min-width: 28px; text-align: center;">--</span>
+
+          <select id="micSensitivitySelect" class="select-dark" style="height: 24px; padding: 0 4px; font-size: 10px;">
+            <option value="ultra">🎤 超靈敏 (微音)</option>
+            <option value="high" selected>🎤 高靈敏 (推薦)</option>
+            <option value="medium">🎤 一般</option>
+            <option value="low">🎤 低靈敏</option>
+          </select>
+        </div>
+
+        <!-- 計分與連擊 -->
+        <div style="display: flex; align-items: center; gap: 8px;" class="font-mono">
+          <div style="text-align: right;">
+            <div style="font-size: 8px; color: #94a3b8;">SCORE</div>
+            <div id="scoreDisplay" style="font-size: 12px; font-weight: bold; color: #fde047;">0</div>
+          </div>
+          <div style="width: 1px; height: 16px; background: #334155;"></div>
+          <div style="text-align: right;">
+            <div style="font-size: 8px; color: #94a3b8;">COMBO</div>
+            <div id="comboDisplay" style="font-size: 12px; font-weight: bold; color: #f472b6;">0</div>
+          </div>
         </div>
       </div>
 
-      <!-- 麥克風音量與偵測音高 -->
-      <div class="flex items-center gap-1.5 bg-slate-800/90 px-2 py-1 rounded-lg border border-slate-700/80">
-        <button id="micToggleBtn" class="w-5 h-5 rounded flex items-center justify-center bg-rose-500 text-white text-[10px] active:scale-95 transition-all shadow">
-          🎤
+      <!-- 第二行：操作工具按鈕列（橫向滑動） -->
+      <div class="btn-scroll-row">
+        <!-- 播放/暫停 (支援空白鍵) -->
+        <button id="playPauseBtn" class="btn btn-primary">
+          <span id="playIcon">▶</span>
+          <span id="playText">播放 (Space)</span>
         </button>
-        <div class="w-10 sm:w-14 h-1.5 bg-slate-950 rounded-full overflow-hidden">
-          <div id="micLevelBar" class="h-full bg-emerald-400 rounded-full w-0 transition-all duration-75"></div>
+
+        <button id="rewindBtn" class="btn" title="重頭開始">⏮</button>
+
+        <!-- 時間 -->
+        <div class="font-mono" style="font-size: 11px; color: #94a3b8; padding: 0 4px;">
+          <span id="timeCurrent" style="color: #f8fafc; font-weight: 600;">00:00</span>
+          <span>/</span>
+          <span id="timeTotal">00:00</span>
         </div>
-        <span id="detectedPitchLabel" class="text-[11px] font-mono text-emerald-400 w-8 text-center font-bold">--</span>
 
-        <!-- 新增：麥克風靈敏度調節下拉選單 -->
-        <select id="micSensitivitySelect" class="bg-slate-900 text-[10px] text-pink-400 font-bold border border-slate-700 rounded px-1.5 py-0.5 focus:outline-none focus:border-pink-500 cursor-pointer" title="麥克風靈敏度">
-          <option value="ultra">🎤 超靈敏 (電腦微音/輕唱)</option>
-          <option value="high" selected>🎤 高靈敏 (電腦推薦)</option>
-          <option value="medium">🎤 一般</option>
-          <option value="low">🎤 低靈敏 (高分貝/吵雜)</option>
-        </select>
-      </div>
+        <div style="width: 1px; height: 18px; background: #334155; flex-shrink: 0;"></div>
 
-      <!-- 計分與連擊 -->
-      <div class="flex items-center gap-2 font-mono text-xs">
-        <div class="text-right">
-          <div class="text-[8px] text-slate-400">SCORE</div>
-          <div id="scoreDisplay" class="text-xs font-bold text-amber-300">0</div>
+        <!-- 獨立節拍器按鈕與音量控制 -->
+        <div style="display: flex; align-items: center; gap: 4px; background: #1e293b; padding: 2px 6px; border-radius: 8px; border: 1px solid #334155; height: 32px; flex-shrink: 0;">
+          <button id="metronomeToggleBtn" class="btn" style="height: 24px; padding: 0 6px; border: none; background: transparent;" title="節拍器開關">
+            <span>⏱️ 節拍:</span>
+            <span id="metroStatusLabel" style="color: #94a3b8;">關</span>
+          </button>
+          <input type="range" id="metroVolumeSlider" min="0" max="150" value="80" style="width: 48px; cursor: pointer;" title="節拍器音量">
+          <span id="metroVolValLabel" class="font-mono" style="font-size: 9px; color: #fde047; min-width: 26px;">80%</span>
         </div>
-        <div class="h-4 w-px bg-slate-800"></div>
-        <div class="text-right">
-          <div class="text-[8px] text-slate-400">COMBO</div>
-          <div id="comboDisplay" class="text-xs font-bold text-pink-400">0</div>
-        </div>
-      </div>
-    </div>
 
-    <!-- 第二行：所有操作按鈕（橫向滑動工具列，手機單手好按） -->
-    <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-      <!-- 播放 / 暫停 -->
-      <button id="playPauseBtn" class="h-8 px-3.5 bg-pink-500 hover:bg-pink-400 active:scale-95 text-white rounded-lg flex items-center gap-1.5 font-bold text-xs shadow-md shadow-pink-500/20 flex-shrink-0 transition-all">
-        <span id="playIcon">▶</span>
-        <span id="playText">播放</span>
-      </button>
+        <!-- 預備拍倒數按鈕 -->
+        <button id="countInToggleBtn" class="btn" title="預備拍倒數開關">
+          <span>⏳ 倒數:</span>
+          <span id="countInStatusLabel" style="color: #38bdf8; font-weight: bold;">開 (4拍)</span>
+        </button>
 
-      <!-- 重播 -->
-      <button id="rewindBtn" class="h-8 w-8 bg-slate-800 active:scale-95 text-slate-300 rounded-lg flex items-center justify-center border border-slate-700 flex-shrink-0" title="回到開頭">
-        ⏮
-      </button>
+        <!-- 載入 MIDI -->
+        <label class="btn btn-indigo">
+          <span>📁 載入 MIDI</span>
+          <input type="file" id="midiFileInput" accept=".mid,.midi" style="display: none;">
+        </label>
 
-      <!-- 時間顯示 -->
-      <div class="text-[11px] font-mono text-slate-400 flex-shrink-0 px-1">
-        <span id="timeCurrent" class="text-slate-200 font-semibold">00:00</span>
-        <span class="mx-0.5">/</span>
-        <span id="timeTotal">00:00</span>
-      </div>
-
-      <div class="h-5 w-px bg-slate-800 flex-shrink-0"></div>
-
-      <!-- 載入 MIDI 按鈕（顯眼放置） -->
-      <label class="h-8 bg-gradient-to-r from-violet-600 to-indigo-600 active:scale-95 text-white text-xs px-3 rounded-lg border border-violet-400/30 flex items-center gap-1 cursor-pointer flex-shrink-0 font-medium shadow-sm">
-        <span>📁 載入 MIDI</span>
-        <input type="file" id="midiFileInput" accept=".mid,.midi" class="hidden">
-      </label>
-
-      <!-- 歌曲選擇下拉（已整合自訂儲存曲庫） -->
-      <div class="relative flex-shrink-0">
-        <select id="presetSelect" class="h-8 bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg pl-2.5 pr-6 focus:outline-none focus:border-pink-500 appearance-none cursor-pointer max-w-[140px] truncate">
-          <optgroup label="☁️ GitHub 雲端共享曲庫" id="cloudSongGroup">
-            <!-- 遠端所有人都能唱的歌曲 -->
-          </optgroup>
-          <optgroup label="📂 本機專屬曲庫" id="customSongGroup">
-            <!-- 動態插入此設備已儲存的 MIDI -->
-          </optgroup>
-          <optgroup label="🎵 內建練習曲">
+        <!-- 歌曲選單 -->
+        <select id="presetSelect" class="select-dark" style="max-width: 150px;">
+          <optgroup label="📂 本機保存曲庫" id="customSongGroup"></optgroup>
+          <optgroup label="🎵 內建完整填拍曲目">
             <option value="preset_twinkle">小星星 (Twinkle)</option>
             <option value="preset_ode">歡樂頌 (Ode to Joy)</option>
             <option value="preset_birthday">生日快樂 (Birthday)</option>
           </optgroup>
         </select>
-        <span class="text-[9px] text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">▼</span>
-      </div>
 
-      <!-- 我的曲庫管理按鈕 -->
-      <button id="openLibraryModalBtn" class="h-8 bg-slate-800 active:scale-95 text-pink-300 text-xs px-2.5 rounded-lg border border-pink-500/30 flex items-center gap-1 flex-shrink-0 font-medium">
-        <span>📚 曲庫管理</span>
-        <span id="libraryCountBadge" class="bg-pink-500/20 text-pink-400 text-[10px] px-1 rounded-full font-mono">0</span>
-      </button>
-
-      <!-- 移調 -->
-      <div class="h-8 flex items-center gap-1 bg-slate-800 px-2 rounded-lg border border-slate-700 text-xs flex-shrink-0">
-        <span class="text-slate-400 text-[10px]">調:</span>
-        <button id="transposeDown" class="w-5 h-5 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center">-</button>
-        <span id="transposeVal" class="w-5 text-center font-mono font-bold text-pink-400 text-xs">0</span>
-        <button id="transposeUp" class="w-5 h-5 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center">+</button>
-      </div>
-
-      <!-- 直接以 BPM 為單位的速度控制（可直接加減 BPM） -->
-      <div class="h-8 flex items-center gap-1.5 bg-slate-800 px-2.5 rounded-lg border border-slate-700 text-xs flex-shrink-0">
-        <!-- 原始 MIDI 速度標籤（點擊一鍵還原） -->
-        <button id="origBpmBtn" class="flex items-center gap-1 bg-slate-900/90 hover:bg-slate-900 active:scale-95 px-2 py-0.5 rounded border border-slate-700/60 transition-all" title="點擊一鍵還原為原始 BPM">
-          <span class="text-[9px] text-slate-400">原速:</span>
-          <span id="originalBpmDisplay" class="font-mono font-bold text-amber-300 text-[11px]">120</span>
+        <!-- 音軌管理按鈕 -->
+        <button id="openTrackModalBtn" class="btn" style="border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="選擇與配置音軌">
+          <span>🎼 歌唱音軌</span>
+          <span id="trackCountBadge" style="background: rgba(56,189,248,0.25); padding: 0 4px; border-radius: 9999px; font-size: 9px;">1</span>
         </button>
 
-        <!-- 直接減 BPM 按鈕 -->
-        <button id="speedDown5Btn" class="px-1.5 h-6 rounded bg-slate-700/70 hover:bg-slate-700 active:scale-90 text-slate-300 font-mono text-[10px]" title="減 5 BPM">-5</button>
-        <button id="speedDownBtn" class="w-6 h-6 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center text-xs" title="減 2 BPM">-</button>
+        <!-- 混音器按鈕 -->
+        <button id="openMixerModalBtn" class="btn" style="border-color: rgba(168,85,247,0.4); color: #c084fc;" title="調整各軌音量關係">
+          <span>🎚️ 混音器</span>
+        </button>
 
-        <!-- 當前即時 BPM 數值顯示與微調輸入 -->
-        <div class="flex items-center gap-0.5 px-1 bg-slate-950/80 rounded border border-slate-800 py-0.5">
-          <input type="number" id="bpmInputField" class="w-12 bg-transparent text-center font-mono font-bold text-cyan-400 text-xs focus:outline-none focus:text-white" value="120" min="40" max="280" step="1" title="點擊可直接手動輸入 BPM">
-          <span class="font-mono text-[9px] text-slate-400 pr-0.5">BPM</span>
+        <button id="openLibraryModalBtn" class="btn" style="border-color: rgba(236,72,153,0.4); color: #f472b6;">
+          <span>📚 曲庫</span>
+          <span id="libraryCountBadge" style="background: rgba(236,72,153,0.25); padding: 0 4px; border-radius: 9999px; font-size: 9px;">0</span>
+        </button>
+
+        <!-- 移調 -->
+        <div style="display: flex; align-items: center; gap: 3px; background: #1e293b; padding: 0 6px; border-radius: 8px; border: 1px solid #334155; height: 32px;">
+          <span style="font-size: 10px; color: #94a3b8;">調:</span>
+          <button id="transposeDown" class="btn" style="height: 22px; width: 22px; padding: 0;">-</button>
+          <span id="transposeVal" class="font-mono" style="font-size: 11px; font-weight: bold; color: #f472b6; width: 18px; text-align: center;">0</span>
+          <button id="transposeUp" class="btn" style="height: 22px; width: 22px; padding: 0;">+</button>
         </div>
 
-        <!-- 直接加 BPM 按鈕 -->
-        <button id="speedUpBtn" class="w-6 h-6 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center text-xs" title="加 2 BPM">+</button>
-        <button id="speedUp5Btn" class="px-1.5 h-6 rounded bg-slate-700/70 hover:bg-slate-700 active:scale-90 text-slate-300 font-mono text-[10px]" title="加 5 BPM">+5</button>
-
-        <!-- 變速百分比標籤 -->
-        <span id="speedPercentLabel" class="text-[9px] font-mono text-slate-400 px-1">100%</span>
-      </div>
-
-      <!-- 導音開關 -->
-      <button id="leadMuteToggle" class="h-8 px-2.5 bg-slate-800 active:scale-95 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-1 flex-shrink-0">
-        <span id="leadMuteIcon">🔊</span>
-        <span>導音</span>
-      </button>
-
-      <!-- 踏板 -->
-      <button id="pedalToggleBtn" class="h-8 px-2.5 bg-slate-800 active:scale-95 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-1 flex-shrink-0">
-        <span>踏板:<b id="pedalStateLabel" class="text-slate-400 ml-0.5">關</b></span>
-      </button>
-
-      <!-- 彈窗開關 -->
-      <button id="openTrackModalBtn" class="h-8 bg-slate-800 text-slate-200 text-xs px-2.5 rounded-lg border border-slate-700 flex items-center gap-1 flex-shrink-0">
-        <span>🎼 音軌</span>
-      </button>
-
-      <button id="openMixerModalBtn" class="h-8 bg-slate-800 text-slate-200 text-xs px-2.5 rounded-lg border border-slate-700 flex items-center gap-1 flex-shrink-0">
-        <span>🎛️ 混音</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- =============================== 主視口：鋼琴卷簾跑道與時間軸 =============================== -->
-  <main class="relative flex-1 w-full h-full overflow-hidden bg-slate-950">
-    <!-- 頂部時間軸微縮圖 (64px 高度) -->
-    <div id="timelineContainer" class="absolute top-0 left-0 right-0 h-16 bg-slate-900/95 border-b border-slate-800/90 z-10 flex items-center select-none cursor-pointer backdrop-blur-sm shadow-md">
-      <div id="timelineTrack" class="relative w-full h-full overflow-hidden">
-        <canvas id="timelineCanvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
-        <div id="timelineProgress" class="absolute top-0 bottom-0 left-0 bg-cyan-500/15 border-r-2 border-cyan-400 pointer-events-none w-0 transition-none"></div>
-        <div id="timelineThumb" class="absolute top-0 bottom-0 -ml-1.5 w-3 bg-gradient-to-b from-cyan-300 via-cyan-400 to-cyan-500 rounded-sm shadow-[0_0_12px_rgba(6,182,212,0.9)] pointer-events-none left-0 z-10 flex items-start justify-center">
-          <div class="w-2.5 h-1.5 rounded-b-sm bg-white shadow-sm"></div>
+        <!-- BPM 精確拍速控制 -->
+        <div class="bpm-box">
+          <button id="origBpmBtn" style="border: none; background: #090d16; color: #fde047; font-size: 10px; font-weight: bold; border-radius: 4px; padding: 2px 5px; cursor: pointer;" title="點擊還原原速">
+            原速:<span id="originalBpmDisplay">120</span>
+          </button>
+          <button id="speedDown5Btn" class="btn" style="height: 24px; padding: 0 4px; font-size: 9px;">-5</button>
+          <button id="speedDownBtn" class="btn" style="height: 24px; width: 24px; padding: 0;">-</button>
+          <input type="number" id="bpmInputField" value="120" min="40" max="280">
+          <span style="font-size: 9px; color: #94a3b8;">BPM</span>
+          <button id="speedUpBtn" class="btn" style="height: 24px; width: 24px; padding: 0;">+</button>
+          <button id="speedUp5Btn" class="btn" style="height: 24px; padding: 0 4px; font-size: 9px;">+5</button>
         </div>
-        <div id="timelineLabels" class="absolute inset-0 pointer-events-none flex items-end justify-between px-3 pb-1 text-[10px] font-mono text-slate-300 z-10">
-          <span class="bg-slate-950/75 px-1.5 py-0.5 rounded border border-slate-800" id="timelineStartLabel">00:00</span>
-          <span class="text-slate-400 text-[9px] bg-slate-950/70 px-2.5 py-0.5 rounded border border-slate-800 backdrop-blur-sm" id="timelineCenterTip">
-            兩指縮放 · 左右拖拽穿梭時間軸
-          </span>
-          <span id="timelineEndLabel" class="bg-slate-950/75 px-1.5 py-0.5 rounded border border-slate-800">00:00</span>
-        </div>
-      </div>
-    </div>
 
-    <!-- 遊戲主畫布 -->
-    <canvas id="gameCanvas" class="w-full h-full block"></canvas>
-
-    <!-- 判定彈窗 -->
-    <div id="judgmentPopup" class="absolute top-20 right-8 pointer-events-none flex flex-col items-end transition-opacity duration-150 opacity-0 z-20">
-      <div id="judgmentText" class="text-xl font-black italic tracking-wider drop-shadow-[0_0_15px_rgba(34,197,94,0.8)] text-emerald-400">
-        PERFECT
-      </div>
-      <div id="judgmentCents" class="text-xs font-mono font-semibold text-slate-300 bg-slate-900/80 px-2 py-0.5 rounded-full border border-slate-700/80 mt-1">
-        0 cents
-      </div>
-    </div>
-
-    <!-- 首次啟用麥克風提示覆蓋層 -->
-    <div id="micPromptOverlay" class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-30 transition-opacity duration-300">
-      <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-sm w-full mx-4 text-center shadow-2xl flex flex-col items-center">
-        <div class="w-16 h-16 rounded-full bg-pink-500/20 text-pink-400 border border-pink-500/40 flex items-center justify-center text-3xl mb-4">
-          🎤
-        </div>
-        <h3 class="text-base font-bold text-white mb-2">啟用麥克風以開始練唱</h3>
-        <p class="text-xs text-slate-400 leading-relaxed mb-6">
-          音高判定完全在你的手機/電腦本地即時運算，不上傳雲端，零流量且極速無延遲。
-        </p>
-        <button id="startMicBtn" class="w-full py-2.5 px-4 bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-pink-500/30 transition-all active:scale-95">
-          開始使用
+        <!-- 導音 -->
+        <button id="leadMuteToggle" class="btn">
+          <span id="leadMuteIcon">🔊</span>
+          <span>導音</span>
         </button>
       </div>
-    </div>
-  </main>
+    </header>
 
-  <!-- 原底部 footer 已全部整併至頂部，消除手機端滑不動與阻擋問題 -->
-
-  <!-- =============================== 模態彈窗 1：音軌角色分配 =============================== -->
-  <div id="trackModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden mx-4">
-      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-        <div>
-          <h2 class="text-sm font-bold text-white">MIDI 音軌角色分配與多聲部設定</h2>
-          <p class="text-[11px] text-slate-400 mt-0.5">主旋律為 100% 不透明高亮條；二部和聲為半透明彩色條並同時評分</p>
+    <!-- =============================== 主可視區（畫布、鋼琴鍵尺規、時間軸） =============================== -->
+    <main id="mainView">
+      <!-- 頂部微縮時間軸 -->
+      <div id="timelineContainer">
+        <div id="timelineTrack">
+          <canvas id="timelineCanvas"></canvas>
+          <div id="timelineProgress"></div>
+          <!-- 支援縮放與拖曳的可視區域取景框 -->
+          <div id="timelineViewportBox" style="position: absolute; top: 0; bottom: 0; left: 0; width: 25%; background: rgba(56, 189, 248, 0.15); border: 1.5px solid #38bdf8; border-radius: 4px; box-shadow: 0 0 8px rgba(56, 189, 248, 0.3); cursor: grab; z-index: 15;">
+            <div id="vpHandleL" style="position: absolute; left: 0; top: 0; bottom: 0; width: 10px; background: #38bdf8; cursor: ew-resize; border-radius: 2px 0 0 2px;"></div>
+            <div id="vpHandleR" style="position: absolute; right: 0; top: 0; bottom: 0; width: 10px; background: #38bdf8; cursor: ew-resize; border-radius: 0 2px 2px 0;"></div>
+          </div>
+          <div id="timelineThumb"></div>
         </div>
-        <button id="closeTrackModalBtn" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
       </div>
 
-      <div class="p-6 overflow-y-auto flex-1 space-y-3" id="trackListContainer"></div>
+      <!-- 遊戲畫布 -->
+      <canvas id="gameCanvas"></canvas>
 
-      <div class="px-6 py-3 border-t border-slate-800 flex justify-end gap-2 bg-slate-900/60">
-        <button id="confirmTracksBtn" class="px-5 py-2 bg-pink-500 hover:bg-pink-400 text-white text-xs font-semibold rounded-xl shadow-lg shadow-pink-500/20 active:scale-95 transition-all">
-          儲存並套用
-        </button>
+      <!-- 預備拍倒數動畫層 -->
+      <div id="countInOverlay" class="hidden">
+        <div id="countInNumber">4</div>
+        <div id="countInSub">預備拍 · 請做好準備</div>
       </div>
-    </div>
-  </div>
 
-  <!-- =============================== 模態彈窗 2：混音器 =============================== -->
-  <div id="mixerModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden mx-4">
-      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-        <div>
-          <h2 class="text-sm font-bold text-white">多軌混音器與音色選擇</h2>
-          <p class="text-[11px] text-slate-400 mt-0.5">獨立調節各軌音量與樂器物理音色（大三角鋼琴、管弦弦樂、貝斯等）</p>
+      <!-- 麥克風提示覆蓋層 -->
+      <div id="micPromptOverlay" style="position: absolute; inset: 0; background: rgba(2, 6, 23, 0.85); display: flex; align-items: center; justify-content: center; z-index: 40;">
+        <div style="background: #0f172a; border: 1px solid #334155; border-radius: 16px; padding: 24px; text-align: center; max-width: 340px; margin: 16px;">
+          <div style="font-size: 36px; margin-bottom: 12px;">🎤</div>
+          <h3 style="font-size: 15px; font-weight: bold; margin-bottom: 6px;">點擊啟用麥克風以開始練唱</h3>
+          <p style="font-size: 11px; color: #94a3b8; line-height: 1.5; margin-bottom: 18px;">
+            音準完全在本地即時運算，不上傳雲端，零流量、超低延遲！
+          </p>
+          <button id="startMicBtn" class="btn btn-primary" style="width: 100%; height: 38px; font-size: 13px;">
+            開始練唱
+          </button>
         </div>
-        <button id="closeMixerModalBtn" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
       </div>
+    </main>
 
-      <div class="p-6 overflow-y-auto flex-1 space-y-3" id="mixerListContainer"></div>
-
-      <div class="px-6 py-3 border-t border-slate-800 flex justify-between items-center bg-slate-900/60 text-xs">
-        <span class="text-slate-400">提示：雙擊推桿可重設為 100%</span>
-        <button id="resetMixerBtn" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700">
-          全部重設
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- =============================== 模態彈窗 3：我的 MIDI 曲庫管理 =============================== -->
-  <div id="libraryModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden mx-4">
-      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-        <div>
-          <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <span>📚 曲庫管理中心</span>
-            <span class="text-[10px] text-cyan-400 bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 rounded">雲端共享 + 本機存儲</span>
-          </h2>
-          <p class="text-[11px] text-slate-400 mt-0.5">點擊「載入」即可開唱；點擊「🗑️」可直接從設備中徹底刪除不想留的歌曲。</p>
+    <!-- =============================== 曲庫管理彈窗 =============================== -->
+    <div id="libraryModal" class="modal-backdrop hidden">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div style="font-size: 13px; font-weight: bold;">📚 本機曲庫管理</div>
+          <button id="closeLibraryModalBtn" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">✕</button>
         </div>
-        <button id="closeLibraryModalBtn" class="text-slate-400 hover:text-white p-1 text-lg">✕</button>
-      </div>
-
-      <!-- 曲庫說明提示 -->
-      <div class="px-6 py-2.5 bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
-        <span>💡 想要讓<b>任何人的電腦</b>打開都有你的歌？只需把 MIDI 檔上傳到你的 GitHub 倉庫！</span>
-      </div>
-
-      <div class="p-6 overflow-y-auto flex-1 space-y-2.5" id="libraryListContainer">
-        <!-- 動態列出已儲存歌曲 -->
-      </div>
-
-      <div class="px-6 py-3 border-t border-slate-800 flex justify-between items-center bg-slate-900/60 text-xs">
-        <span class="text-slate-400">儲存方式：設備本機專屬資料庫 (IndexedDB)</span>
-        <button id="closeLibraryModalBottomBtn" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 active:scale-95">
-          完成
-        </button>
+        <div class="modal-body" id="libraryListContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <div class="modal-footer">
+          <span style="font-size: 10px; color: #64748b;">永久保存在此裝置的快閃記憶體中</span>
+          <button id="closeLibraryModalBottomBtn" class="btn">關閉</button>
+        </div>
       </div>
     </div>
+
+    <!-- =============================== 音軌分配與顯示彈窗 =============================== -->
+    <div id="trackModal" class="modal-backdrop hidden">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div style="font-size: 13px; font-weight: bold;">🎼 歌唱音軌定義與畫面顯示</div>
+          <button id="closeTrackModalBtn" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">✕</button>
+        </div>
+        <div class="modal-body" id="trackListContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <div class="modal-footer">
+          <span style="font-size: 10px; color: #64748b;">💡 預設僅顯示定義為「歌唱軌」的音符，其餘伴奏軌在畫面上自動隱藏</span>
+          <button id="closeTrackModalBottomBtn" class="btn">完成</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- =============================== 混音器彈窗 (Mixer) =============================== -->
+    <div id="mixerModal" class="modal-backdrop hidden">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div style="font-size: 13px; font-weight: bold;">🎚️ 軌道混音器 (Mixer)</div>
+          <button id="closeMixerModalBtn" style="background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;">✕</button>
+        </div>
+        <div class="modal-body" id="mixerListContainer" style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- 節拍器專用音量卡片 -->
+          <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: #1e293b; border-radius: 8px; border: 1px solid #38bdf8;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-size: 12px; font-weight: bold; color: #38bdf8;">⏱️ 節拍器 (Metronome)</span>
+              </div>
+              <span id="mixerMetroVolLabel" class="font-mono" style="font-size: 11px; color: #fde047;">80%</span>
+            </div>
+            <input type="range" id="mixerMetroVolSlider" min="0" max="150" value="80" style="width: 100%; cursor: pointer;">
+          </div>
+          <div id="mixerTrackList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="resetMixerBtn" class="btn" style="font-size: 10px;">全部重設 (100%)</button>
+          <button id="closeMixerModalBottomBtn" class="btn btn-primary">確定</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- =============================== JavaScript 核心邏輯 =============================== -->
   <script>
     /* ==========================================================================
-       1. 本機虛擬資料庫引擎 (IndexedDB Storage Manager)
+       1. IndexedDB 本機資料庫
        ========================================================================== */
     class SongDatabase {
       constructor() {
         this.dbName = "WebKTV_Database";
-        this.dbVersion = 1;
         this.storeName = "midi_songs";
         this.db = null;
       }
-
       async init() {
-        return new Promise((resolve, reject) => {
-          const req = indexedDB.open(this.dbName, this.dbVersion);
+        return new Promise((resolve) => {
+          const req = indexedDB.open(this.dbName, 1);
           req.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(this.storeName)) {
               db.createObjectStore(this.storeName, { keyPath: "id" });
             }
           };
-          req.onsuccess = (e) => {
-            this.db = e.target.result;
-            resolve(this.db);
-          };
-          req.onerror = (e) => {
-            console.error("IndexedDB 打開失敗:", e);
-            resolve(null);
-          };
+          req.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
+          req.onerror = () => resolve(null);
         });
       }
-
       async saveSong(song) {
         if (!this.db) await this.init();
         return new Promise((resolve) => {
           try {
             const tx = this.db.transaction([this.storeName], "readwrite");
-            const store = tx.objectStore(this.storeName);
-            store.put(song);
+            tx.objectStore(this.storeName).put(song);
             tx.oncomplete = () => resolve(true);
             tx.onerror = () => resolve(false);
-          } catch (err) {
-            console.error("存入資料庫失敗:", err);
-            resolve(false);
-          }
+          } catch { resolve(false); }
         });
       }
-
       async getAllSongs() {
         if (!this.db) await this.init();
         return new Promise((resolve) => {
           try {
             const tx = this.db.transaction([this.storeName], "readonly");
-            const store = tx.objectStore(this.storeName);
-            const req = store.getAll();
+            const req = tx.objectStore(this.storeName).getAll();
             req.onsuccess = () => resolve(req.result || []);
             req.onerror = () => resolve([]);
-          } catch (err) {
-            console.error("讀取資料庫失敗:", err);
-            resolve([]);
-          }
+          } catch { resolve([]); }
         });
       }
-
       async deleteSong(id) {
         if (!this.db) await this.init();
         return new Promise((resolve) => {
           try {
             const tx = this.db.transaction([this.storeName], "readwrite");
-            const store = tx.objectStore(this.storeName);
-            store.delete(id);
+            tx.objectStore(this.storeName).delete(id);
             tx.oncomplete = () => resolve(true);
             tx.onerror = () => resolve(false);
-          } catch (err) {
-            resolve(false);
-          }
+          } catch { resolve(false); }
         });
       }
     }
-
     const songDB = new SongDatabase();
 
     /* ==========================================================================
-       2. 極速 YIN 音高偵測演算法 + 3 幀抗抖動中位數濾波
+       2. 極速音高偵測（抗抖動 YIN + 3 幀中位數）
        ========================================================================== */
     class FastPitchEngine {
       constructor() {
         this.audioCtx = null;
         this.analyser = null;
         this.gainNode = null;
-        this.mediaStream = null;
         this.buffer = new Float32Array(1024);
         this.pitchHistory = [];
         this.currentPitch = null;
-        this.currentNote = null;
-        this.currentCents = 0;
         this.rms = 0;
-        this.threshold = 0.18; // YIN 容許門檻
-        this.rmsThreshold = 0.005; // 靈敏底噪門檻
-        this.gainMultiplier = 2.6; // 前級放大增益
+        this.threshold = 0.18;
+        this.rmsThreshold = 0.005;
       }
-
       async initMic() {
         try {
           this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          if (this.audioCtx.state === "suspended") {
-            await this.audioCtx.resume();
-          }
-
-          // 停用吃掉歌聲的硬體降噪，保留純淨泛音
-          this.mediaStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false,
-              latency: 0
-            }
+          if (this.audioCtx.state === "suspended") await this.audioCtx.resume();
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
           });
-
-          const source = this.audioCtx.createMediaStreamSource(this.mediaStream);
+          const src = this.audioCtx.createMediaStreamSource(stream);
           this.gainNode = this.audioCtx.createGain();
-          this.gainNode.gain.value = this.gainMultiplier;
-
+          this.gainNode.gain.value = 2.6;
           this.analyser = this.audioCtx.createAnalyser();
           this.analyser.fftSize = 1024;
-          this.analyser.smoothingTimeConstant = 0.0;
-
-          source.connect(this.gainNode);
+          src.connect(this.gainNode);
           this.gainNode.connect(this.analyser);
           return true;
         } catch (err) {
-          console.error("無法取得麥克風權限:", err);
+          console.error("麥克風無法啟用:", err);
           return false;
         }
       }
-
       setSensitivity(mode) {
-        if (mode === "ultra") {
-          this.rmsThreshold = 0.003;
-          this.threshold = 0.22;
-          if (this.gainNode) this.gainNode.gain.value = 3.8;
-        } else if (mode === "high") {
-          this.rmsThreshold = 0.005;
-          this.threshold = 0.18;
-          if (this.gainNode) this.gainNode.gain.value = 2.6;
-        } else if (mode === "medium") {
-          this.rmsThreshold = 0.010;
-          this.threshold = 0.15;
-          if (this.gainNode) this.gainNode.gain.value = 1.8;
-        } else {
-          this.rmsThreshold = 0.020;
-          this.threshold = 0.12;
-          if (this.gainNode) this.gainNode.gain.value = 1.0;
-        }
+        if (mode === "ultra") { this.rmsThreshold = 0.003; this.threshold = 0.22; if (this.gainNode) this.gainNode.gain.value = 3.8; }
+        else if (mode === "high") { this.rmsThreshold = 0.005; this.threshold = 0.18; if (this.gainNode) this.gainNode.gain.value = 2.6; }
+        else if (mode === "medium") { this.rmsThreshold = 0.010; this.threshold = 0.15; if (this.gainNode) this.gainNode.gain.value = 1.8; }
+        else { this.rmsThreshold = 0.020; this.threshold = 0.12; if (this.gainNode) this.gainNode.gain.value = 1.0; }
       }
-
       detect() {
-        if (!this.analyser) return { pitch: null, note: null, cents: 0, rms: 0 };
-
+        if (!this.analyser) return { pitch: null, note: null, rms: 0 };
         this.analyser.getFloatTimeDomainData(this.buffer);
 
-        // 1. 計算 RMS 能量
         let sum = 0;
-        for (let i = 0; i < this.buffer.length; i++) {
-          sum += this.buffer[i] * this.buffer[i];
-        }
+        for (let i = 0; i < this.buffer.length; i++) sum += this.buffer[i] * this.buffer[i];
         this.rms = Math.sqrt(sum / this.buffer.length);
 
-        // 低於門檻直接歸零，防止空調/呼吸亂跳
         if (this.rms < this.rmsThreshold) {
           this.pitchHistory = [];
           this.currentPitch = null;
-          return { pitch: null, note: null, cents: 0, rms: this.rms };
+          return { pitch: null, note: null, rms: this.rms };
         }
 
-        // 2. 快速差分自相關 (YIN 核心差分方程)
-        const halfSize = Math.floor(this.buffer.length / 2);
-        const diff = new Float32Array(halfSize);
+        const half = Math.floor(this.buffer.length / 2);
+        const diff = new Float32Array(half);
         diff[0] = 1;
         let runningSum = 0;
-
-        for (let tau = 1; tau < halfSize; tau++) {
+        for (let tau = 1; tau < half; tau++) {
           let d = 0;
-          for (let i = 0; i < halfSize; i++) {
+          for (let i = 0; i < half; i++) {
             const delta = this.buffer[i] - this.buffer[i + tau];
             d += delta * delta;
           }
@@ -520,349 +678,756 @@
           diff[tau] = runningSum > 0 ? (d * tau) / runningSum : 1;
         }
 
-        // 尋找局部極小值
         let tauEstimate = -1;
-        for (let tau = 2; tau < halfSize; tau++) {
+        for (let tau = 2; tau < half; tau++) {
           if (diff[tau] < this.threshold) {
-            while (tau + 1 < halfSize && diff[tau + 1] < diff[tau]) {
-              tau++;
-            }
+            while (tau + 1 < half && diff[tau + 1] < diff[tau]) tau++;
             tauEstimate = tau;
             break;
           }
         }
+        if (tauEstimate === -1) return { pitch: null, note: null, rms: this.rms };
 
-        if (tauEstimate === -1) {
-          return { pitch: null, note: null, cents: 0, rms: this.rms };
-        }
-
-        // 拋物線精確內插
         let betterTau = tauEstimate;
-        if (tauEstimate > 0 && tauEstimate < halfSize - 1) {
-          const s0 = diff[tauEstimate - 1];
-          const s1 = diff[tauEstimate];
-          const s2 = diff[tauEstimate + 1];
+        if (tauEstimate > 0 && tauEstimate < half - 1) {
+          const s0 = diff[tauEstimate - 1], s1 = diff[tauEstimate], s2 = diff[tauEstimate + 1];
           betterTau = tauEstimate + (s2 - s0) / (2 * (2 * s1 - s2 - s0));
         }
 
-        const sampleRate = this.audioCtx.sampleRate;
-        const rawPitch = sampleRate / betterTau;
+        const rawPitch = this.audioCtx.sampleRate / betterTau;
+        if (rawPitch < 65 || rawPitch > 1050) return { pitch: null, note: null, rms: this.rms };
 
-        // 音域過濾 (C2: 65Hz ~ C6: 1046Hz)
-        if (rawPitch < 65 || rawPitch > 1050) {
-          return { pitch: null, note: null, cents: 0, rms: this.rms };
-        }
-
-        // 3 幀滑動中位數濾波（抗抽搐）
         this.pitchHistory.push(rawPitch);
         if (this.pitchHistory.length > 3) this.pitchHistory.shift();
-
         const sorted = [...this.pitchHistory].sort((a, b) => a - b);
-        const filteredPitch = sorted[Math.floor(sorted.length / 2)];
+        const filtered = sorted[Math.floor(sorted.length / 2)];
 
-        // 八度跳躍保護
         if (this.currentPitch) {
-          const ratio = filteredPitch / this.currentPitch;
-          if (Math.abs(ratio - 2) < 0.08) {
-            this.currentPitch = filteredPitch / 2;
-          } else if (Math.abs(ratio - 0.5) < 0.08) {
-            this.currentPitch = filteredPitch * 2;
-          } else {
-            this.currentPitch = this.currentPitch * 0.4 + filteredPitch * 0.6;
-          }
+          this.currentPitch = this.currentPitch * 0.4 + filtered * 0.6;
         } else {
-          this.currentPitch = filteredPitch;
+          this.currentPitch = filtered;
         }
 
-        // 轉換為 MIDI Note 與音名
         const midiNum = 69 + 12 * Math.log2(this.currentPitch / 440);
-        const roundedMidi = Math.round(midiNum);
-        const cents = Math.round((midiNum - roundedMidi) * 100);
+        const rounded = Math.round(midiNum);
+        const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const noteName = names[((rounded % 12) + 12) % 12] + (Math.floor(rounded / 12) - 1);
 
-        const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-        const noteName = noteNames[((roundedMidi % 12) + 12) % 12] + (Math.floor(roundedMidi / 12) - 1);
-
-        this.currentNote = noteName;
-        this.currentCents = cents;
-
-        return {
-          pitch: this.currentPitch,
-          midi: midiNum,
-          roundedMidi,
-          note: noteName,
-          cents,
-          rms: this.rms
-        };
+        return { pitch: this.currentPitch, midi: midiNum, roundedMidi: rounded, note: noteName, rms: this.rms };
       }
     }
 
     /* ==========================================================================
-       3. Web Audio 合成器伴奏播放引擎 (支援動態變速 BPM)
+       3. 多音色 GM (General MIDI) 合成發聲引擎
        ========================================================================== */
-    class AudioEngine {
+    class GMAudioEngine {
       constructor() {
         this.ctx = null;
-        this.isPlaying = false;
         this.isMuted = false;
-        this.leadVolume = 0.7;
-        this.masterVolume = 1.0;
-        this.activeOscillators = [];
+        this.metronomeEnabled = false;
+        this.metronomeVolume = 0.8; // 節拍器獨立音量 (0.0 ~ 1.5)
+        this.noiseBuffer = null;
       }
-
       async init() {
-        if (!this.ctx) {
-          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (this.ctx.state === "suspended") {
-          await this.ctx.resume();
+        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (this.ctx.state === "suspended") await this.ctx.resume();
+        if (!this.noiseBuffer && this.ctx) {
+          // 建立 1 秒專用白噪聲緩衝區（供爵士鼓小鼓、鈸使用）
+          const len = this.ctx.sampleRate;
+          this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+          const data = this.noiseBuffer.getChannelData(0);
+          for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
         }
       }
 
-      midiToFreq(midi) {
-        return 440 * Math.pow(2, (midi - 69) / 12);
+      // 真正 GM 128 種樂器聲學物理模擬 (鋼琴、弦樂、吉他、貝斯、管樂、合成器、鼓組)
+      playNote(midi, duration = 0.3, volume = 1.0, program = 0, isDrum = false) {
+        if (!this.ctx || this.isMuted || volume <= 0) return;
+        const now = this.ctx.currentTime;
+        const masterOut = this.ctx.createGain();
+        masterOut.gain.value = Math.min(1.5, volume * 0.75);
+        masterOut.connect(this.ctx.destination);
+
+        // 第 10 頻道打擊樂（Drums）
+        if (isDrum) {
+          this.playDrumSound(midi, now, masterOut);
+          return;
+        }
+
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        const pGroup = Math.floor(program / 8);
+
+        switch (pGroup) {
+          case 0: // 0-7: 鋼琴群 (Piano) - 雙振盪器豐富諧波
+            this.synthPiano(freq, duration, now, masterOut);
+            break;
+          case 1: // 8-15: 鍵盤打擊樂 (Marimba, Glockenspiel, Celesta)
+            this.synthMallet(freq, duration, now, masterOut);
+            break;
+          case 2: // 16-23: 風琴 (Organ)
+            this.synthOrgan(freq, duration, now, masterOut);
+            break;
+          case 3: // 24-31: 吉他 (Acoustic / Electric Guitar)
+            this.synthGuitar(freq, duration, now, masterOut);
+            break;
+          case 4: // 32-39: 貝斯 (Bass - Acoustic, Finger, Slap)
+            this.synthBass(freq, duration, now, masterOut);
+            break;
+          case 5: // 40-47: 弦樂 (Violin, Cello, Harp)
+          case 6: // 48-55: 弦樂合奏與合唱人聲 (String Ensemble, Choir)
+            this.synthStrings(freq, duration, now, masterOut);
+            break;
+          case 7: // 56-63: 銅管 (Brass - Trumpet, Trombone, French Horn)
+            this.synthBrass(freq, duration, now, masterOut);
+            break;
+          case 8: // 64-71: 簧樂 (Sax, Oboe, Clarinet)
+          case 9: // 72-79: 木管 (Flute, Piccolo)
+            this.synthReed(freq, duration, now, masterOut);
+            break;
+          case 10: // 80-87: 合成主音 (Synth Lead)
+          case 11: // 88-95: 合成音色 (Synth Pad)
+            this.synthPad(freq, duration, now, masterOut);
+            break;
+          default: // 其他音色
+            this.synthDefault(freq, duration, now, masterOut);
+            break;
+        }
       }
 
-      playNote(midi, duration = 0.3, type = "lead") {
-        if (!this.ctx || this.isMuted) return;
+      synthPiano(freq, duration, now, out) {
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc1.type = "triangle";
+        osc2.type = "sine";
+        osc1.frequency.setValueAtTime(freq, now);
+        osc2.frequency.setValueAtTime(freq * 2, now); // 高八度泛音
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.8, now + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration + 0.35, 0.5));
+        osc1.connect(g);
+        osc2.connect(g);
+        g.connect(out);
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + duration + 0.4);
+        osc2.stop(now + duration + 0.4);
+      }
 
-        const freq = this.midiToFreq(midi);
+      synthMallet(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        g.gain.setValueAtTime(0.9, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + Math.min(duration + 0.2, 0.8));
+        osc.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + 0.85);
+      }
+
+      synthOrgan(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        g.gain.setValueAtTime(0.01, now);
+        g.gain.linearRampToValueAtTime(0.5, now + 0.03);
+        g.gain.setValueAtTime(0.45, now + duration);
+        g.gain.linearRampToValueAtTime(0.001, now + duration + 0.06);
+        osc.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.07);
+      }
+
+      synthGuitar(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const g = this.ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(freq, now);
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(3200, now);
+        filter.frequency.exponentialRampToValueAtTime(600, now + duration);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.7, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration + 0.2, 0.4));
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.45);
+      }
+
+      synthBass(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const g = this.ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, now);
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(450, now);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.9, now + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration + 0.1, 0.35));
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.38);
+      }
+
+      synthStrings(freq, duration, now, out) {
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const g = this.ctx.createGain();
+        osc1.type = "sawtooth";
+        osc2.type = "sawtooth";
+        osc1.frequency.setValueAtTime(freq, now);
+        osc2.frequency.setValueAtTime(freq * 1.004, now); // 弦樂雙琴輕微 Detune 營造厚重空氣感
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(2000, now);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.45, now + 0.08);
+        g.gain.setValueAtTime(0.4, now + duration);
+        g.gain.linearRampToValueAtTime(0.001, now + duration + 0.2);
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(g);
+        g.connect(out);
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + duration + 0.22);
+        osc2.stop(now + duration + 0.22);
+      }
+
+      synthBrass(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const g = this.ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(freq, now);
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(800, now);
+        filter.frequency.linearRampToValueAtTime(2800, now + 0.06);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.6, now + 0.05);
+        g.gain.setValueAtTime(0.4, now + duration);
+        g.gain.linearRampToValueAtTime(0.001, now + duration + 0.1);
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.12);
+      }
+
+      synthReed(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.55, now + 0.04);
+        g.gain.setValueAtTime(0.45, now + duration);
+        g.gain.linearRampToValueAtTime(0.001, now + duration + 0.08);
+        osc.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.09);
+      }
+
+      synthPad(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const g = this.ctx.createGain();
+        osc.type = "square";
+        osc.frequency.setValueAtTime(freq, now);
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(1400, now);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.4, now + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.15);
+        osc.connect(filter);
+        filter.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.18);
+      }
+
+      synthDefault(freq, duration, now, out) {
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, now);
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.6, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.1);
+        osc.connect(g);
+        g.connect(out);
+        osc.start(now);
+        osc.stop(now + duration + 0.12);
+      }
+
+      playDrumSound(midi, now, out) {
+        if (midi === 35 || midi === 36) { // Bass Drum 大鼓
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.frequency.setValueAtTime(130, now);
+          osc.frequency.exponentialRampToValueAtTime(32, now + 0.12);
+          g.gain.setValueAtTime(1.1, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+          osc.connect(g);
+          g.connect(out);
+          osc.start(now);
+          osc.stop(now + 0.19);
+        } else if (midi === 38 || midi === 40) { // Snare Drum 小鼓
+          if (this.noiseBuffer) {
+            const noise = this.ctx.createBufferSource();
+            noise.buffer = this.noiseBuffer;
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = "highpass";
+            filter.frequency.value = 800;
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0.85, now);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+            noise.connect(filter);
+            filter.connect(g);
+            g.connect(out);
+            noise.start(now);
+          }
+          const osc = this.ctx.createOscillator();
+          const oscG = this.ctx.createGain();
+          osc.frequency.setValueAtTime(200, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+          oscG.gain.setValueAtTime(0.7, now);
+          oscG.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+          osc.connect(oscG);
+          oscG.connect(out);
+          osc.start(now);
+          osc.stop(now + 0.11);
+        } else if (midi === 42 || midi === 44 || midi === 46) { // Hi-Hat 腳踏鈸
+          if (this.noiseBuffer) {
+            const noise = this.ctx.createBufferSource();
+            noise.buffer = this.noiseBuffer;
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = "highpass";
+            filter.frequency.value = 6500;
+            const g = this.ctx.createGain();
+            g.gain.setValueAtTime(0.4, now);
+            g.gain.exponentialRampToValueAtTime(0.001, now + (midi === 46 ? 0.22 : 0.05));
+            noise.connect(filter);
+            filter.connect(g);
+            g.connect(out);
+            noise.start(now);
+          }
+        } else { // Toms / Cymbals
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+          g.gain.setValueAtTime(0.65, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+          osc.connect(g);
+          g.connect(out);
+          osc.start(now);
+          osc.stop(now + 0.19);
+        }
+      }
+
+      playTick(isAccent = false) {
+        if (!this.ctx || this.metronomeVolume <= 0) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-
-        osc.type = type === "lead" ? "triangle" : "sine";
-        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-
-        const now = this.ctx.currentTime;
-        const vol = type === "lead" ? this.leadVolume : 0.35;
-
-        gain.gain.setValueAtTime(0.001, now);
-        gain.gain.linearRampToValueAtTime(vol, now + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration, 0.05));
-
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(isAccent ? 1600 : 900, this.ctx.currentTime);
+        const peakGain = Math.min(1.0, this.metronomeVolume * 0.8);
+        gain.gain.setValueAtTime(peakGain, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
         osc.connect(gain);
         gain.connect(this.ctx.destination);
-
-        osc.start(now);
-        osc.stop(now + duration + 0.05);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.05);
       }
     }
 
-    /* ==========================================================================
-       4. 內建預設歌曲與 GitHub 雲端曲目清單 (所有人隨時可唱)
-       ========================================================================== */
-    // 💡 只要將 .mid 檔上傳至 GitHub，並在下方陣列填入檔名，所有人打開網址就能直接選唱！
-    const CLOUD_SONGS = [
-      // 範例：{ name: "晴天", file: "qingtian.mid" },
-      // 範例：{ name: "告白氣球", file: "gaobai.mid" }
+    // GM 樂器名稱速查表（128 種 General MIDI 樂器對照）
+    const GM_INSTRUMENT_NAMES = [
+      "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano", "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavi",
+      "Celesta", "Glockenspiel", "Music Box", "Vibraphone", "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+      "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ", "Reed Organ", "Accordion", "Harmonica", "Tango Accordion",
+      "Acoustic Guitar (nylon)", "Acoustic Guitar (steel)", "Electric Guitar (jazz)", "Electric Guitar (clean)", "Electric Guitar (muted)", "Overdriven Guitar", "Distortion Guitar", "Guitar Harmonics",
+      "Acoustic Bass", "Electric Bass (finger)", "Electric Bass (pick)", "Fretless Bass", "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
+      "Violin", "Viola", "Cello", "Contrabass", "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+      "String Ensemble 1", "String Ensemble 2", "SynthStrings 1", "SynthStrings 2", "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit",
+      "Trumpet", "Trombone", "Tuba", "Muted Trumpet", "French Horn", "Brass Section", "SynthBrass 1", "SynthBrass 2",
+      "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax", "Oboe", "English Horn", "Bassoon", "Clarinet",
+      "Piccolo", "Flute", "Recorder", "Pan Flute", "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
+      "Lead 1 (square)", "Lead 2 (sawtooth)", "Lead 3 (calliope)", "Lead 4 (chiff)", "Lead 5 (charang)", "Lead 6 (voice)", "Lead 7 (fifths)", "Lead 8 (bass + lead)",
+      "Pad 1 (new age)", "Pad 2 (warm)", "Pad 3 (polysynth)", "Pad 4 (choir)", "Pad 5 (bowed)", "Pad 6 (metallic)", "Pad 7 (halo)", "Pad 8 (sweep)",
+      "FX 1 (rain)", "FX 2 (soundtrack)", "FX 3 (crystal)", "FX 4 (atmosphere)", "FX 5 (brightness)", "FX 6 (goblins)", "FX 7 (echoes)", "FX 8 (sci-fi)",
+      "Sitar", "Banjo", "Shamisen", "Koto", "Kalimba", "Bag pipe", "Fiddle", "Shanai",
+      "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock", "Taiko Drum", "Melodic Tom", "Synth Drum", "Reverse Cymbal",
+      "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet", "Telephone Ring", "Helicopter", "Applause", "Gunshot"
     ];
 
-    const PRESETS = {
-      preset_twinkle: {
-        name: "小星星 (Twinkle Twinkle Little Star)",
-        bpm: 100,
-        notes: [
-          { midi: 60, start: 0.5, dur: 0.8 }, { midi: 60, start: 1.5, dur: 0.8 },
-          { midi: 67, start: 2.5, dur: 0.8 }, { midi: 67, start: 3.5, dur: 0.8 },
-          { midi: 69, start: 4.5, dur: 0.8 }, { midi: 69, start: 5.5, dur: 0.8 },
-          { midi: 67, start: 6.5, dur: 1.6 },
-          { midi: 65, start: 8.5, dur: 0.8 }, { midi: 65, start: 9.5, dur: 0.8 },
-          { midi: 64, start: 10.5, dur: 0.8 }, { midi: 64, start: 11.5, dur: 0.8 },
-          { midi: 62, start: 12.5, dur: 0.8 }, { midi: 62, start: 13.5, dur: 0.8 },
-          { midi: 60, start: 14.5, dur: 1.8 }
-        ]
-      },
-      preset_ode: {
-        name: "歡樂頌 (Ode to Joy)",
-        bpm: 120,
-        notes: [
-          { midi: 64, start: 0.5, dur: 0.45 }, { midi: 64, start: 1.0, dur: 0.45 },
-          { midi: 65, start: 1.5, dur: 0.45 }, { midi: 67, start: 2.0, dur: 0.45 },
-          { midi: 67, start: 2.5, dur: 0.45 }, { midi: 65, start: 3.0, dur: 0.45 },
-          { midi: 64, start: 3.5, dur: 0.45 }, { midi: 62, start: 4.0, dur: 0.45 },
-          { midi: 60, start: 4.5, dur: 0.45 }, { midi: 60, start: 5.0, dur: 0.45 },
-          { midi: 62, start: 5.5, dur: 0.45 }, { midi: 64, start: 6.0, dur: 0.7 },
-          { midi: 62, start: 7.0, dur: 0.25 }, { midi: 62, start: 7.5, dur: 0.9 }
-        ]
-      },
-      preset_birthday: {
-        name: "祝你生日快樂 (Happy Birthday)",
-        bpm: 110,
-        notes: [
-          { midi: 60, start: 0.5, dur: 0.35 }, { midi: 60, start: 1.0, dur: 0.35 },
-          { midi: 62, start: 1.5, dur: 0.8 },  { midi: 60, start: 2.5, dur: 0.8 },
-          { midi: 65, start: 3.5, dur: 0.8 },  { midi: 64, start: 4.5, dur: 1.6 },
-          { midi: 60, start: 6.5, dur: 0.35 }, { midi: 60, start: 7.0, dur: 0.35 },
-          { midi: 62, start: 7.5, dur: 0.8 },  { midi: 60, start: 8.5, dur: 0.8 },
-          { midi: 67, start: 9.5, dur: 0.8 },  { midi: 65, start: 10.5, dur: 1.6 }
-        ]
+    /* ==========================================================================
+       4. 節拍量化與無縫填滿演算法 (Quantization & Legato Snap)
+       ========================================================================== */
+    function quantizeAndFillNotes(notes, bpm = 120) {
+      if (!notes || notes.length === 0) return [];
+      const beatSec = 60 / bpm;
+      // 以十六分音符 (1/4 拍) 作為量化網格
+      const grid = beatSec / 4;
+
+      const processed = notes.map(n => ({
+        midi: n.midi,
+        start: Math.round(n.start / grid) * grid,
+        dur: Math.max(grid, Math.round(n.dur / grid) * grid),
+        lyric: n.lyric || ""
+      }));
+
+      processed.sort((a, b) => a.start - b.start);
+
+      // 連續音符無縫吸附：若前後兩音相隔小於 1/2 拍，自動延長前音填滿空隙
+      for (let i = 0; i < processed.length - 1; i++) {
+        const cur = processed[i];
+        const next = processed[i + 1];
+        const end = cur.start + cur.dur;
+        const gap = next.start - end;
+
+        // 若不是大休止符，將前音長度拉滿至下一音開頭
+        if (gap >= -0.01 && gap < beatSec * 0.45) {
+          cur.dur = Math.max(cur.dur, next.start - cur.start);
+        }
       }
-    };
+      return processed;
+    }
+
+    // 內建標準拍格歌曲（填滿拍子且附帶歌詞與雙軌和聲）
+    function buildTwinkleNotes(bpm = 100) {
+      const b = 60 / bpm; // 1拍長度
+      const seqLead = [
+        { m: 60, b: 1, text: "一" }, { m: 60, b: 1, text: "閃" }, { m: 67, b: 1, text: "一" }, { m: 67, b: 1, text: "閃" },
+        { m: 69, b: 1, text: "亮" }, { m: 69, b: 1, text: "晶" }, { m: 67, b: 2, text: "晶" },
+        { m: 65, b: 1, text: "滿" }, { m: 65, b: 1, text: "天" }, { m: 64, b: 1, text: "都" }, { m: 64, b: 1, text: "是" },
+        { m: 62, b: 1, text: "小" }, { m: 62, b: 1, text: "星" }, { m: 60, b: 2, text: "星" }
+      ];
+      const seqHarmony = [
+        { m: 52, b: 2, text: "Woo~" }, { m: 55, b: 2, text: "Ah~" },
+        { m: 57, b: 2, text: "La~" },  { m: 55, b: 2, text: "★" },
+        { m: 53, b: 2, text: "Woo~" }, { m: 52, b: 2, text: "Ah~" },
+        { m: 50, b: 2, text: "La~" },  { m: 48, b: 2, text: "★" }
+      ];
+
+      let curT = 0.5;
+      const rawLead = [];
+      seqLead.forEach(s => {
+        rawLead.push({ midi: s.m, start: curT, dur: s.b * b, lyric: s.text });
+        curT += s.b * b;
+      });
+
+      curT = 0.5;
+      const rawHarmony = [];
+      seqHarmony.forEach(s => {
+        rawHarmony.push({ midi: s.m + 12, start: curT, dur: s.b * b, lyric: s.text });
+        curT += s.b * b;
+      });
+
+      return {
+        lead: quantizeAndFillNotes(rawLead, bpm),
+        harmony: quantizeAndFillNotes(rawHarmony, bpm)
+      };
+    }
+
+    function buildOdeNotes(bpm = 120) {
+      const b = 60 / bpm;
+      const seq = [
+        { m: 64, b: 1, text: "歡" }, { m: 64, b: 1, text: "樂" }, { m: 65, b: 1, text: "女" }, { m: 67, b: 1, text: "神" },
+        { m: 67, b: 1, text: "聖" }, { m: 65, b: 1, text: "潔" }, { m: 64, b: 1, text: "美" }, { m: 62, b: 1, text: "麗" },
+        { m: 60, b: 1, text: "燦" }, { m: 60, b: 1, text: "爛" }, { m: 62, b: 1, text: "光" }, { m: 64, b: 1, text: "芒" },
+        { m: 64, b: 1.5, text: "照" }, { m: 62, b: 0.5, text: "大" }, { m: 62, b: 2, text: "地" }
+      ];
+      let curT = 0.5;
+      const raw = [];
+      seq.forEach(s => {
+        raw.push({ midi: s.m, start: curT, dur: s.b * b, lyric: s.text });
+        curT += s.b * b;
+      });
+      return { lead: quantizeAndFillNotes(raw, bpm), harmony: [] };
+    }
+
+    function buildBirthdayNotes(bpm = 110) {
+      const b = 60 / bpm;
+      const seq = [
+        { m: 60, b: 0.75, text: "祝" }, { m: 60, b: 0.25, text: "你" }, { m: 62, b: 1, text: "生" }, { m: 60, b: 1, text: "日" }, { m: 65, b: 1, text: "快" }, { m: 64, b: 2, text: "樂" },
+        { m: 60, b: 0.75, text: "祝" }, { m: 60, b: 0.25, text: "你" }, { m: 62, b: 1, text: "生" }, { m: 60, b: 1, text: "日" }, { m: 67, b: 1, text: "快" }, { m: 65, b: 2, text: "樂" }
+      ];
+      let curT = 0.5;
+      const raw = [];
+      seq.forEach(s => {
+        raw.push({ midi: s.m, start: curT, dur: s.b * b, lyric: s.text });
+        curT += s.b * b;
+      });
+      return { lead: quantizeAndFillNotes(raw, bpm), harmony: [] };
+    }
 
     /* ==========================================================================
-       5. 輕量高效 MIDI 解析器 (支援讀取 0x51 Set Tempo 速度)
+       5. 輕量高效 MIDI 解析器（支援 Running Status、Program Change 樂器、Channel 10 打擊樂與歌詞）
        ========================================================================== */
     class SimpleMidiParser {
+      static decodeText(bytes) {
+        // 嘗試 UTF-8 ➜ GBK/GB18030 ➜ Big5 ➜ ASCII 多重回退解碼，防止中文歌詞解析失敗
+        const u8 = new Uint8Array(bytes);
+        try {
+          const dec = new TextDecoder("utf-8", { fatal: true });
+          const res = dec.decode(u8).trim();
+          if (res) return res;
+        } catch {}
+        try {
+          const dec = new TextDecoder("gb18030");
+          const res = dec.decode(u8).trim();
+          if (res) return res;
+        } catch {}
+        try {
+          const dec = new TextDecoder("big5");
+          const res = dec.decode(u8).trim();
+          if (res) return res;
+        } catch {}
+        let s = "";
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return s.trim();
+      }
+
       static parse(arrayBuffer) {
         const view = new DataView(arrayBuffer);
         let offset = 0;
-
-        function readString(len) {
-          let str = "";
-          for (let i = 0; i < len; i++) {
-            str += String.fromCharCode(view.getUint8(offset++));
-          }
-          return str;
+        function readStr(len) {
+          let s = "";
+          for (let i = 0; i < len; i++) s += String.fromCharCode(view.getUint8(offset++));
+          return s;
         }
+        if (readStr(4) !== "MThd") throw new Error("無效的 MIDI: 缺少 MThd 標頭");
+        offset += 4; // 跳過 chunk 尺寸 (6)
+        const formatType = view.getUint16(offset); offset += 2;
+        const trackCount = view.getUint16(offset); offset += 2;
+        const timeDivision = view.getUint16(offset); offset += 2;
 
-        const headerChunk = readString(4);
-        if (headerChunk !== "MThd") throw new Error("無效的 MIDI 檔案格式");
-
-        const headerLength = view.getUint32(offset);
-        offset += 4;
-        const formatType = view.getUint16(offset);
-        offset += 2;
-        const trackCount = view.getUint16(offset);
-        offset += 2;
-        const timeDivision = view.getUint16(offset);
-        offset += 2;
-
-        let detectedBpm = 120; // 預設 120
-        let tempoMicroseconds = 500000;
+        let detectedBpm = 120;
+        let tempoEvents = []; // 保存全局動態拍速事件 { ticks, tempoMicroseconds }
         const rawTracks = [];
+        const allGlobalLyrics = []; // 全局歌詞池：包含跨軌道的所有歌詞事件 { ticks, text }
 
         for (let t = 0; t < trackCount; t++) {
           if (offset >= view.byteLength) break;
-          const chunkId = readString(4);
-          const chunkLen = view.getUint32(offset);
-          offset += 4;
-
-          if (chunkId !== "MTrk") {
-            offset += chunkLen;
-            continue;
-          }
-
+          const chunkId = readStr(4);
+          const chunkLen = view.getUint32(offset); offset += 4;
+          if (chunkId !== "MTrk") { offset += chunkLen; continue; }
           const endTrack = offset + chunkLen;
           const trackEvents = [];
           let ticks = 0;
-          let lastStatus = 0;
+          let runningStatus = 0; // 支援 MIDI Running Status
+          let trackName = `音軌 ${t + 1}`;
+          let currentProgram = 0; // 預設 GM Grand Piano
+          let isDrumChannel = false;
 
           while (offset < endTrack) {
-            // 讀取變長 Delta Time
-            let delta = 0;
-            let byte = 0;
+            let delta = 0, byte = 0;
             do {
               byte = view.getUint8(offset++);
               delta = (delta << 7) | (byte & 0x7f);
             } while (byte & 0x80);
-
             ticks += delta;
 
             let status = view.getUint8(offset);
-            if (status & 0x80) {
-              lastStatus = status;
+            if (status >= 0x80) {
+              runningStatus = status;
               offset++;
             } else {
-              status = lastStatus;
+              status = runningStatus;
             }
 
             const eventType = status >> 4;
             const channel = status & 0x0f;
+            if (channel === 9) isDrumChannel = true; // MIDI Channel 10 為標準爵士鼓軌
 
-            if (status === 0xff) {
-              // Meta Event
+            if (status === 0xff) { // Meta 事件
               const metaType = view.getUint8(offset++);
               let metaLen = 0;
-              do {
-                byte = view.getUint8(offset++);
-                metaLen = (metaLen << 7) | (byte & 0x7f);
-              } while (byte & 0x80);
+              do { byte = view.getUint8(offset++); metaLen = (metaLen << 7) | (byte & 0x7f); } while (byte & 0x80);
 
-              if (metaType === 0x51 && metaLen === 3) {
-                // Set Tempo 事件
-                const t0 = view.getUint8(offset);
-                const t1 = view.getUint8(offset + 1);
-                const t2 = view.getUint8(offset + 2);
-                tempoMicroseconds = (t0 << 16) | (t1 << 8) | t2;
-                detectedBpm = Math.round(60000000 / tempoMicroseconds);
+              const metaBytes = [];
+              for (let k = 0; k < metaLen; k++) metaBytes.push(view.getUint8(offset + k));
+
+              if (metaType === 0x03) { // 軌道名稱
+                const nameStr = SimpleMidiParser.decodeText(metaBytes);
+                if (nameStr) trackName = nameStr;
+              } else if (metaType === 0x05 || metaType === 0x01) { // 歌詞 (0x05) 或文字 (0x01)
+                const lyricStr = SimpleMidiParser.decodeText(metaBytes);
+                if (lyricStr && !lyricStr.startsWith("@") && !lyricStr.startsWith("//")) {
+                  // 存入全局歌詞池與本軌記錄
+                  allGlobalLyrics.push({ ticks, text: lyricStr });
+                }
+              } else if (metaType === 0x51 && metaLen === 3) { // Set Tempo
+                const t0 = metaBytes[0], t1 = metaBytes[1], t2 = metaBytes[2];
+                const tempoUs = (t0 << 16) | (t1 << 8) | t2;
+                tempoEvents.push({ ticks, tempoUs });
+                if (!detectedBpm || detectedBpm === 120) {
+                  detectedBpm = Math.round(60000000 / tempoUs);
+                }
               }
               offset += metaLen;
-            } else if (status === 0xf0 || status === 0xf7) {
-              // SysEx
+            } else if (status === 0xf0 || status === 0xf7) { // SysEx
               let sysexLen = 0;
-              do {
-                byte = view.getUint8(offset++);
-                sysexLen = (sysexLen << 7) | (byte & 0x7f);
-              } while (byte & 0x80);
+              do { byte = view.getUint8(offset++); sysexLen = (sysexLen << 7) | (byte & 0x7f); } while (byte & 0x80);
               offset += sysexLen;
+            } else if (eventType === 0x0c) { // Program Change (GM 音色)
+              currentProgram = view.getUint8(offset++);
+            } else if (eventType === 0x0d) { // Aftertouch
+              offset++;
             } else {
-              // Channel Event
               const data1 = view.getUint8(offset++);
-              let data2 = 0;
-              if (eventType !== 0x0c && eventType !== 0x0d) {
-                data2 = view.getUint8(offset++);
-              }
+              const data2 = view.getUint8(offset++);
 
-              if (eventType === 0x09 && data2 > 0) {
-                // Note ON
-                trackEvents.push({ type: "noteOn", ticks, midi: data1, vel: data2, channel });
-              } else if (eventType === 0x08 || (eventType === 0x09 && data2 === 0)) {
-                // Note OFF
-                trackEvents.push({ type: "noteOff", ticks, midi: data1, channel });
+              if (eventType === 0x09 && data2 > 0) { // Note On
+                trackEvents.push({ type: "noteOn", ticks, midi: data1 });
+              } else if (eventType === 0x08 || (eventType === 0x09 && data2 === 0)) { // Note Off
+                trackEvents.push({ type: "noteOff", ticks, midi: data1 });
               }
             }
           }
 
-          rawTracks.push(trackEvents);
+          rawTracks.push({
+            name: trackName,
+            program: currentProgram,
+            isDrum: isDrumChannel,
+            events: trackEvents
+          });
         }
 
-        // 轉換為真實秒數音符
-        const secondsPerTick = (tempoMicroseconds / 1000000) / (timeDivision || 480);
-        const melodyNotes = [];
+        // 計算時間戳轉換函式（支援動態 tempo 與多段速度）
+        if (tempoEvents.length === 0) tempoEvents.push({ ticks: 0, tempoUs: 500000 });
+        tempoEvents.sort((a, b) => a.ticks - b.ticks);
 
-        rawTracks.forEach(events => {
-          const activeNotes = {};
-          events.forEach(ev => {
+        const ticksToSeconds = (targetTicks) => {
+          let totalSec = 0;
+          let prevTicks = 0;
+          let curTempoUs = 500000;
+          for (let i = 0; i < tempoEvents.length; i++) {
+            const ev = tempoEvents[i];
+            if (targetTicks > ev.ticks) {
+              const dTicks = ev.ticks - prevTicks;
+              totalSec += (dTicks * curTempoUs) / ((timeDivision || 480) * 1000000);
+              prevTicks = ev.ticks;
+              curTempoUs = ev.tempoUs;
+            } else {
+              break;
+            }
+          }
+          const remain = targetTicks - prevTicks;
+          totalSec += (remain * curTempoUs) / ((timeDivision || 480) * 1000000);
+          return totalSec;
+        };
+
+        // 將歌詞池全部換算為秒數，並依時間排序
+        const lyricsWithSeconds = allGlobalLyrics.map(lyr => ({
+          time: ticksToSeconds(lyr.ticks),
+          text: lyr.text
+        })).sort((a, b) => a.time - b.time);
+
+        const parsedTracks = [];
+        rawTracks.forEach((tObj, idx) => {
+          const melody = [];
+          const activeNotes = {}; // midi -> startSec
+
+          tObj.events.forEach(ev => {
+            const sec = ticksToSeconds(ev.ticks);
             if (ev.type === "noteOn") {
-              activeNotes[ev.midi] = ev.ticks * secondsPerTick;
-            } else if (ev.type === "noteOff" && activeNotes[ev.midi] !== undefined) {
-              const start = activeNotes[ev.midi];
-              const end = ev.ticks * secondsPerTick;
-              if (end - start > 0.05) {
-                melodyNotes.push({
-                  midi: ev.midi,
-                  start: start,
-                  dur: end - start
-                });
+              if (activeNotes[ev.midi]) {
+                const prevSec = activeNotes[ev.midi];
+                const dur = Math.max(0.08, sec - prevSec);
+                melody.push({ midi: ev.midi, start: prevSec, dur, lyric: "" });
               }
+              activeNotes[ev.midi] = sec;
+            } else if (ev.type === "noteOff" && activeNotes[ev.midi]) {
+              const prevSec = activeNotes[ev.midi];
+              const dur = Math.max(0.06, sec - prevSec);
+              melody.push({ midi: ev.midi, start: prevSec, dur, lyric: "" });
               delete activeNotes[ev.midi];
             }
           });
+
+          if (melody.length > 0) {
+            melody.sort((a, b) => a.start - b.start);
+
+            // ================= 歌詞時間容差吸附算法 =================
+            // 只要歌詞時間在音符開始的 -0.25 秒到 +0.35 秒之內，就直接掛載到該音符
+            const beatSec = 60 / detectedBpm;
+            const tolerance = Math.max(0.2, beatSec * 0.4);
+
+            melody.forEach(note => {
+              // 尋找最近的歌詞
+              let bestMatch = null;
+              let minDiff = Infinity;
+              for (let li = 0; li < lyricsWithSeconds.length; li++) {
+                const lyr = lyricsWithSeconds[li];
+                const diff = Math.abs(lyr.time - note.start);
+                if (diff <= tolerance && diff < minDiff) {
+                  minDiff = diff;
+                  bestMatch = lyr;
+                }
+              }
+              if (bestMatch) {
+                note.lyric = bestMatch.text;
+              }
+            });
+
+            const filled = quantizeAndFillNotes(melody, detectedBpm);
+            const isFirst = (idx === 0);
+
+            let finalName = tObj.name;
+            if (tObj.isDrum) finalName = "🥁 Standard Drums";
+            else if (!tObj.name || tObj.name.startsWith("音軌")) {
+              finalName = GM_INSTRUMENT_NAMES[tObj.program] || `Track ${idx + 1}`;
+            }
+
+            parsedTracks.push({
+              id: "tr_" + idx + "_" + Date.now(),
+              name: finalName,
+              program: tObj.program,
+              isDrum: tObj.isDrum,
+              role: isFirst ? "lead" : "accompaniment",
+              visible: isFirst,
+              volume: 1.0,
+              muted: false,
+              notes: filled
+            });
+          }
         });
 
-        melodyNotes.sort((a, b) => a.start - b.start);
-        return {
-          bpm: detectedBpm || 120,
-          notes: melodyNotes
-        };
+        return { bpm: detectedBpm || 120, tracks: parsedTracks };
       }
     }
 
     /* ==========================================================================
-       6. 遊戲主主控台 (Game App Core)
+       6. 應用核心主程式 (App Core)
        ========================================================================== */
     class KTVApp {
       constructor() {
         this.pitchEngine = new FastPitchEngine();
-        this.audioEngine = new AudioEngine();
+        this.audioEngine = new GMAudioEngine();
         this.canvas = document.getElementById("gameCanvas");
         this.ctx = this.canvas.getContext("2d");
 
         this.timelineCanvas = document.getElementById("timelineCanvas");
         this.tCtx = this.timelineCanvas.getContext("2d");
+        this.timelineViewportBox = document.getElementById("timelineViewportBox");
 
-        // 歌曲狀態
-        this.currentSongNotes = [];
+        this.currentTracks = [];
         this.songDuration = 20;
+        this.songDurationOriginal = 20; // 保存原始秒數以便隨 BPM 即時換算
         this.originalBpm = 120;
         this.currentBpm = 120;
         this.playbackRate = 1.0;
@@ -870,15 +1435,20 @@
         this.isPlaying = false;
         this.transpose = 0;
 
-        // 計分狀態
+        // 節拍器與倒數設定
+        this.metronomeOn = false;
+        this.countInEnabled = true;
+        this.isCountingDown = false;
+        this.countDownStep = 4;
+        this.lastBeatIndex = -1;
+
+        <!-- 手勢與視窗縮放 -->
+        this.viewWindowSeconds = 5.0;
+        this.minMidi = 36; // C2 (男聲超低音起點)
+        this.maxMidi = 84; // C6 (女聲超高音頂點)
         this.score = 0;
         this.combo = 0;
-        this.userTrail = []; // 歷史音高軌跡
-
-        // 音域範圍 C2 (36) ~ C6 (84)
-        this.minMidi = 48; // C3
-        this.maxMidi = 76; // E5
-        this.viewWindowSeconds = 5.0; // 跑道顯示時間寬度
+        this.userTrail = [];
 
         this.initDOM();
         this.initEvents();
@@ -894,7 +1464,6 @@
         this.playPauseBtn = document.getElementById("playPauseBtn");
         this.playIcon = document.getElementById("playIcon");
         this.playText = document.getElementById("playText");
-        this.rewindBtn = document.getElementById("rewindBtn");
         this.timeCurrent = document.getElementById("timeCurrent");
         this.timeTotal = document.getElementById("timeTotal");
         this.scoreDisplay = document.getElementById("scoreDisplay");
@@ -903,135 +1472,205 @@
         this.detectedPitchLabel = document.getElementById("detectedPitchLabel");
         this.presetSelect = document.getElementById("presetSelect");
         this.customSongGroup = document.getElementById("customSongGroup");
-        this.cloudSongGroup = document.getElementById("cloudSongGroup");
 
-        // BPM 控件
         this.originalBpmDisplay = document.getElementById("originalBpmDisplay");
-        this.origBpmBtn = document.getElementById("origBpmBtn");
         this.bpmInputField = document.getElementById("bpmInputField");
-        this.speedPercentLabel = document.getElementById("speedPercentLabel");
-        this.speedDownBtn = document.getElementById("speedDownBtn");
-        this.speedUpBtn = document.getElementById("speedUpBtn");
-        this.speedDown5Btn = document.getElementById("speedDown5Btn");
-        this.speedUp5Btn = document.getElementById("speedUp5Btn");
 
-        // 移調與導音
-        this.transposeVal = document.getElementById("transposeVal");
-        this.leadMuteToggle = document.getElementById("leadMuteToggle");
-        this.leadMuteIcon = document.getElementById("leadMuteIcon");
+        this.metronomeToggleBtn = document.getElementById("metronomeToggleBtn");
+        this.metroStatusLabel = document.getElementById("metroStatusLabel");
+        this.metroVolumeSlider = document.getElementById("metroVolumeSlider");
+        this.metroVolValLabel = document.getElementById("metroVolValLabel");
+        this.mixerMetroVolSlider = document.getElementById("mixerMetroVolSlider");
+        this.mixerMetroVolLabel = document.getElementById("mixerMetroVolLabel");
 
-        // 模態框
+        this.countInToggleBtn = document.getElementById("countInToggleBtn");
+        this.countInStatusLabel = document.getElementById("countInStatusLabel");
+        this.countInOverlay = document.getElementById("countInOverlay");
+        this.countInNumber = document.getElementById("countInNumber");
+
         this.libraryModal = document.getElementById("libraryModal");
         this.libraryCountBadge = document.getElementById("libraryCountBadge");
         this.libraryListContainer = document.getElementById("libraryListContainer");
+
+        // 音軌管理
+        this.trackModal = document.getElementById("trackModal");
+        this.trackCountBadge = document.getElementById("trackCountBadge");
+        this.trackListContainer = document.getElementById("trackListContainer");
+        this.openTrackModalBtn = document.getElementById("openTrackModalBtn");
+
+        // 混音器
+        this.mixerModal = document.getElementById("mixerModal");
+        this.mixerTrackList = document.getElementById("mixerTrackList");
+        this.openMixerModalBtn = document.getElementById("openMixerModalBtn");
       }
 
       async initLibrary() {
         await songDB.init();
-        this.renderCloudSongsUI();
         await this.refreshLibraryUI();
-      }
-
-      renderCloudSongsUI() {
-        if (!this.cloudSongGroup) return;
-        this.cloudSongGroup.innerHTML = "";
-        if (CLOUD_SONGS.length === 0) {
-          const opt = document.createElement("option");
-          opt.disabled = true;
-          opt.textContent = "(尚未在 GitHub 加入 .mid)";
-          this.cloudSongGroup.appendChild(opt);
-          return;
-        }
-        CLOUD_SONGS.forEach((s, idx) => {
-          const opt = document.createElement("option");
-          opt.value = "cloud_" + idx;
-          opt.textContent = `☁️ ${s.name}`;
-          this.cloudSongGroup.appendChild(opt);
-        });
-      }
-
-      async loadCloudSong(songMeta) {
-        try {
-          const res = await fetch(songMeta.file);
-          if (!res.ok) throw new Error("無法下載雲端 MIDI 檔案");
-          const buffer = await res.arrayBuffer();
-          const result = SimpleMidiParser.parse(buffer);
-          
-          this.currentSongNotes = JSON.parse(JSON.stringify(result.notes));
-          this.originalBpm = result.bpm || 120;
-          this.originalBpmDisplay.textContent = this.originalBpm;
-          this.setBpm(this.originalBpm);
-
-          const lastNote = this.currentSongNotes[this.currentSongNotes.length - 1];
-          this.songDuration = lastNote ? lastNote.start + lastNote.dur + 2.0 : 20;
-          this.currentTime = 0;
-          this.timeTotal.textContent = this.formatTime(this.songDuration);
-          this.renderTimelineMinimap();
-        } catch (err) {
-          console.error("載入雲端歌曲失敗:", err);
-          alert("載入雲端 MIDI 失敗，請確認檔案已上傳至 GitHub！");
-        }
       }
 
       async refreshLibraryUI() {
         const songs = await songDB.getAllSongs();
         this.libraryCountBadge.textContent = songs.length;
-
-        // 清空並重建下拉選單中的自訂歌曲
         this.customSongGroup.innerHTML = "";
-        songs.forEach((s) => {
+        songs.forEach(s => {
           const opt = document.createElement("option");
           opt.value = "custom_" + s.id;
           opt.textContent = `📁 ${s.name} (${s.bpm} BPM)`;
           this.customSongGroup.appendChild(opt);
         });
 
-        // 渲染曲庫彈窗列表
         this.libraryListContainer.innerHTML = "";
         if (songs.length === 0) {
-          this.libraryListContainer.innerHTML = `
-            <div class="text-center py-8 text-slate-500 text-xs">
-              目前本機曲庫尚無儲存的歌曲。<br>點擊上方「📁 載入 MIDI」即可存入本設備！
-            </div>`;
+          this.libraryListContainer.innerHTML = `<div style="text-align:center; padding: 24px; color: #64748b; font-size: 11px;">尚未存入歌曲，點擊「📁 載入 MIDI」即可加入！</div>`;
           return;
         }
 
-        songs.forEach((song) => {
-          const item = document.createElement("div");
-          item.className = "flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700/60";
-          item.innerHTML = `
-            <div class="flex-1 truncate mr-3">
-              <div class="text-xs font-bold text-white truncate">${song.name}</div>
-              <div class="text-[10px] text-slate-400 font-mono mt-0.5">
-                速度: <span class="text-amber-300 font-bold">${song.bpm} BPM</span> · 音符: ${song.notes.length} 個 · 存於: ${song.savedAt}
+        songs.forEach(s => {
+          const row = document.createElement("div");
+          row.style.cssText = "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #1e293b; border-radius: 8px; border: 1px solid #334155;";
+          const totalNotes = s.tracks ? s.tracks.reduce((acc, t) => acc + t.notes.length, 0) : (s.notes ? s.notes.length : 0);
+          row.innerHTML = `
+            <div style="flex:1; overflow:hidden; margin-right: 8px;">
+              <div style="font-size: 12px; font-weight: bold; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${s.name}</div>
+              <div style="font-size: 10px; color: #94a3b8;" class="font-mono">${s.bpm} BPM · ${totalNotes} 音符</div>
+            </div>
+            <div style="display:flex; gap: 6px;">
+              <button class="btn btn-primary load-btn" style="height: 26px; padding: 0 8px;">開唱</button>
+              <button class="btn del-btn" style="height: 26px; padding: 0 8px; color: #f87171; border-color: rgba(239,68,68,0.4);">🗑️</button>
+            </div>
+          `;
+          row.querySelector(".load-btn").onclick = () => {
+            this.loadCustomSong(s);
+            this.libraryModal.classList.add("hidden");
+          };
+          row.querySelector(".del-btn").onclick = async () => {
+            if (window.confirm(`確定刪除《${s.name}》嗎？`)) {
+              await songDB.deleteSong(s.id);
+              await this.refreshLibraryUI();
+            }
+          };
+          this.libraryListContainer.appendChild(row);
+        });
+      }
+
+      refreshTrackUI() {
+        const leadCount = this.currentTracks.filter(t => t.role && t.role !== "accompaniment").length;
+        this.trackCountBadge.textContent = leadCount;
+        this.trackListContainer.innerHTML = "";
+        this.currentTracks.forEach((t) => {
+          const row = document.createElement("div");
+          row.style.cssText = "display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #1e293b; border-radius: 8px; border: 1px solid #334155;";
+          
+          let roleBadge = '<span style="color: #64748b;">(伴奏)</span>';
+          if (t.role === "lead") roleBadge = '<span style="color: #f43f5e; font-weight: bold;">[🎤 主唱]</span>';
+          else if (t.role === "harmony1" || t.role === "harmony") roleBadge = '<span style="color: #f59e0b; font-weight: bold;">[🎶 二部]</span>';
+          else if (t.role === "harmony2") roleBadge = '<span style="color: #10b981; font-weight: bold;">[🎵 三部]</span>';
+          else if (t.role === "harmony3") roleBadge = '<span style="color: #8b5cf6; font-weight: bold;">[🎼 四部]</span>';
+
+          const instName = t.isDrum ? "🥁 Standard Drums" : (GM_INSTRUMENT_NAMES[t.program || 0] || "Piano");
+          const isPrimary = (t.displayStyle !== "secondary");
+
+          row.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1; overflow: hidden; margin-right: 8px;">
+              <input type="checkbox" class="track-vis-cb" ${t.visible ? "checked" : ""} style="cursor: pointer;" title="畫面顯示/隱藏">
+              <div style="overflow: hidden;">
+                <div style="font-size: 12px; font-weight: bold; color: ${t.role === 'lead' ? '#f43f5e' : (t.role === 'harmony1' || t.role === 'harmony' ? '#f59e0b' : (t.role === 'harmony2' ? '#10b981' : (t.role === 'harmony3' ? '#8b5cf6' : '#f8fafc')))}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                  ${t.name} ${roleBadge}
+                </div>
+                <div style="font-size: 10px; color: #94a3b8;" class="font-mono">
+                  ${instName} · ${t.notes.length} 音符
+                </div>
               </div>
             </div>
-            <div class="flex items-center gap-1.5 flex-shrink-0">
-              <button class="load-btn px-3 py-1 bg-pink-500 hover:bg-pink-400 active:scale-95 text-white rounded-lg text-xs font-semibold shadow">
-                載入開唱
-              </button>
-              <!-- 垃圾桶刪除按鈕 -->
-              <button class="del-btn px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 rounded-lg text-xs font-semibold border border-rose-500/30 active:scale-95 transition-all" title="從本機刪除此曲">
-                🗑️ 刪除
-              </button>
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+              <!-- 主要顯示 / 次要半透明 切換 -->
+              <select class="select-dark track-style-sel" style="height: 28px; font-size: 10px; padding: 0 4px; border-color: ${isPrimary ? '#ec4899' : '#64748b'};">
+                <option value="primary" ${isPrimary ? "selected" : ""}>🌟 主要 (實心)</option>
+                <option value="secondary" ${!isPrimary ? "selected" : ""}>🌫️ 次要 (半透明)</option>
+              </select>
+
+              <select class="select-dark track-role-sel" style="height: 28px; font-size: 10px; padding: 0 6px;">
+                <option value="lead" ${t.role === "lead" ? "selected" : ""}>🎤 主唱軌</option>
+                <option value="harmony1" ${t.role === "harmony1" || t.role === "harmony" ? "selected" : ""}>🎶 二部和聲</option>
+                <option value="harmony2" ${t.role === "harmony2" ? "selected" : ""}>🎵 三部和聲</option>
+                <option value="harmony3" ${t.role === "harmony3" ? "selected" : ""}>🎼 四部和聲</option>
+                <option value="accompaniment" ${t.role === "accompaniment" ? "selected" : ""}>🎹 伴奏 (隱藏)</option>
+              </select>
             </div>
           `;
 
-          item.querySelector(".load-btn").addEventListener("click", () => {
-            this.loadCustomSong(song);
-            this.libraryModal.classList.add("hidden");
-          });
+          row.querySelector(".track-vis-cb").onchange = (e) => {
+            t.visible = e.target.checked;
+            this.renderTimelineMinimap();
+          };
+          row.querySelector(".track-style-sel").onchange = (e) => {
+            t.displayStyle = e.target.value;
+          };
+          row.querySelector(".track-role-sel").onchange = (e) => {
+            t.role = e.target.value;
+            t.visible = (t.role !== "accompaniment");
+            // 主唱預設為主要實心，其餘預設為次要半透明
+            t.displayStyle = (t.role === "lead") ? "primary" : "secondary";
+            this.refreshTrackUI();
+            this.renderTimelineMinimap();
+          };
+          this.trackListContainer.appendChild(row);
+        });
+      }
 
-          // 刪除處理
-          item.querySelector(".del-btn").addEventListener("click", async () => {
-            const confirmed = window.confirm(`確定要從本設備徹底刪除《${song.name}》嗎？`);
-            if (confirmed) {
-              await songDB.deleteSong(song.id);
-              await this.refreshLibraryUI();
-            }
-          });
+      refreshMixerUI() {
+        if (!this.mixerTrackList) return;
+        this.mixerTrackList.innerHTML = "";
+        this.currentTracks.forEach((t) => {
+          const row = document.createElement("div");
+          row.style.cssText = "display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: #1e293b; border-radius: 8px; border: 1px solid #334155;";
+          const volPercent = Math.round((t.volume ?? 1.0) * 100);
+          
+          let prefix = "🎹 伴奏: ";
+          let color = "#38bdf8";
+          if (t.role === "lead") { prefix = "🎤 主唱: "; color = "#f43f5e"; }
+          else if (t.role === "harmony1" || t.role === "harmony") { prefix = "🎶 二部: "; color = "#f59e0b"; }
+          else if (t.role === "harmony2") { prefix = "🎵 三部: "; color = "#10b981"; }
+          else if (t.role === "harmony3") { prefix = "🎼 四部: "; color = "#8b5cf6"; }
 
-          this.libraryListContainer.appendChild(item);
+          const instName = t.isDrum ? "🥁 Standard Drums" : (GM_INSTRUMENT_NAMES[t.program || 0] || "Piano");
+
+          row.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-size: 12px; font-weight: bold; color: ${color};">
+                  ${prefix}${t.name}
+                </span>
+                <span style="font-size: 10px; color: #94a3b8; margin-left: 6px;">(${instName})</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="vol-label font-mono" style="font-size: 11px; color: #fde047; min-width: 36px; text-align: right;">${volPercent}%</span>
+                <button class="btn mute-toggle-btn" style="height: 24px; padding: 0 6px; font-size: 10px; color: ${t.muted ? '#f87171' : '#94a3b8'};">
+                  ${t.muted ? "Mute" : "靜音"}
+                </button>
+              </div>
+            </div>
+            <input type="range" class="vol-slider" min="0" max="150" value="${volPercent}" style="width: 100%; cursor: pointer;">
+          `;
+
+          const slider = row.querySelector(".vol-slider");
+          const label = row.querySelector(".vol-label");
+          const muteBtn = row.querySelector(".mute-toggle-btn");
+
+          slider.oninput = (e) => {
+            const val = Number(e.target.value);
+            t.volume = val / 100;
+            label.textContent = val + "%";
+          };
+
+          muteBtn.onclick = () => {
+            t.muted = !t.muted;
+            muteBtn.style.color = t.muted ? "#f87171" : "#94a3b8";
+            muteBtn.textContent = t.muted ? "Mute" : "靜音";
+          };
+
+          this.mixerTrackList.appendChild(row);
         });
       }
 
@@ -1039,188 +1678,418 @@
         newBpm = Math.max(40, Math.min(280, Math.round(newBpm)));
         this.currentBpm = newBpm;
         this.playbackRate = this.currentBpm / this.originalBpm;
-        this.bpmInputField.value = this.currentBpm;
-        const percent = Math.round(this.playbackRate * 100);
-        this.speedPercentLabel.textContent = `${percent}%`;
+        if (this.bpmInputField) this.bpmInputField.value = this.currentBpm;
+
+        // 尚未播放時隨時調整速度，即時換算總時長並刷新介面
+        if (this.songDurationOriginal) {
+          this.songDuration = this.songDurationOriginal / this.playbackRate;
+          if (this.timeTotal) this.timeTotal.textContent = this.formatTime(this.songDuration);
+        }
+
+        // 即時重繪頂部時間軸微縮圖與進度
+        this.renderTimelineMinimap();
+        this.updateTimelineProgress();
       }
 
       loadPreset(key) {
-        const p = PRESETS[key];
-        if (!p) return;
-        this.currentSongNotes = JSON.parse(JSON.stringify(p.notes));
-        this.originalBpm = p.bpm || 120;
-        this.originalBpmDisplay.textContent = this.originalBpm;
-        this.setBpm(this.originalBpm);
+        let presetData;
+        if (key === "preset_twinkle") {
+          this.originalBpm = 100;
+          presetData = buildTwinkleNotes(this.originalBpm);
+        } else if (key === "preset_ode") {
+          this.originalBpm = 120;
+          presetData = buildOdeNotes(this.originalBpm);
+        } else {
+          this.originalBpm = 110;
+          presetData = buildBirthdayNotes(this.originalBpm);
+        }
 
-        const lastNote = this.currentSongNotes[this.currentSongNotes.length - 1];
-        this.songDuration = lastNote ? lastNote.start + lastNote.dur + 2.0 : 20;
+        this.currentTracks = [
+          {
+            id: "tr_main",
+            name: "主唱 (Lead)",
+            program: 0, // Grand Piano
+            isDrum: false,
+            role: "lead",
+            displayStyle: "primary", // 🌟 主要顯示 (實心)
+            visible: true,
+            volume: 1.0,
+            muted: false,
+            notes: presetData.lead
+          }
+        ];
+
+        // 若有內建和聲音軌
+        if (presetData.harmony && presetData.harmony.length > 0) {
+          this.currentTracks.push({
+            id: "tr_harmony",
+            name: "和聲 (Harmony)",
+            program: 48, // String Ensemble
+            isDrum: false,
+            role: "harmony1",
+            displayStyle: "secondary", // 🌫️ 次要顯示 (半透明)
+            visible: true,
+            volume: 0.8,
+            muted: false,
+            notes: presetData.harmony
+          });
+        }
+
+        this.originalBpmDisplay.textContent = this.originalBpm;
+        const last = presetData.lead[presetData.lead.length - 1];
+        this.songDurationOriginal = last ? last.start + last.dur + 2.0 : 20;
         this.currentTime = 0;
-        this.timeTotal.textContent = this.formatTime(this.songDuration);
-        this.renderTimelineMinimap();
+        this.setBpm(this.originalBpm);
+        this.refreshTrackUI();
       }
 
-      loadCustomSong(song) {
-        this.currentSongNotes = JSON.parse(JSON.stringify(song.notes));
-        this.originalBpm = song.bpm || 120;
+      loadCustomSong(s) {
+        this.originalBpm = s.bpm || 120;
         this.originalBpmDisplay.textContent = this.originalBpm;
-        this.setBpm(this.originalBpm);
+        
+        if (s.tracks && s.tracks.length > 0) {
+          this.currentTracks = s.tracks.map((t, idx) => ({
+            ...t,
+            program: t.program !== undefined ? t.program : 0,
+            isDrum: !!t.isDrum,
+            role: t.role || (idx === 0 ? "lead" : "accompaniment"),
+            displayStyle: t.displayStyle || (idx === 0 ? "primary" : "secondary"),
+            visible: t.visible !== undefined ? t.visible : (t.role === "lead" || idx === 0),
+            volume: t.volume !== undefined ? t.volume : 1.0,
+            notes: quantizeAndFillNotes(t.notes, this.originalBpm)
+          }));
+        } else if (s.notes) {
+          this.currentTracks = [{
+            id: "tr_custom",
+            name: s.name,
+            program: 0,
+            isDrum: false,
+            role: "lead",
+            displayStyle: "primary",
+            visible: true,
+            volume: 1.0,
+            muted: false,
+            notes: quantizeAndFillNotes(s.notes, this.originalBpm)
+          }];
+        }
 
-        const lastNote = this.currentSongNotes[this.currentSongNotes.length - 1];
-        this.songDuration = lastNote ? lastNote.start + lastNote.dur + 2.0 : 20;
+        let maxTime = 20;
+        this.currentTracks.forEach(t => {
+          if (t.notes.length) {
+            const last = t.notes[t.notes.length - 1];
+            if (last.start + last.dur + 2.0 > maxTime) maxTime = last.start + last.dur + 2.0;
+          }
+        });
+        this.songDurationOriginal = maxTime;
         this.currentTime = 0;
-        this.timeTotal.textContent = this.formatTime(this.songDuration);
-
-        // 同步下拉選單選取值
-        this.presetSelect.value = "custom_" + song.id;
-        this.renderTimelineMinimap();
+        this.setBpm(this.originalBpm);
+        this.presetSelect.value = "custom_" + s.id;
+        this.refreshTrackUI();
       }
 
       initEvents() {
-        // 首次點擊開始麥克風覆蓋層
-        document.getElementById("startMicBtn").addEventListener("click", async () => {
-          const ok = await this.pitchEngine.initMic();
-          if (ok) {
-            await this.audioEngine.init();
-            document.getElementById("micPromptOverlay").classList.add("hidden");
+        // 空白鍵（Spacebar）快速切換播放/暫停
+        window.addEventListener("keydown", (e) => {
+          if (e.code === "Space" && e.target.tagName !== "INPUT") {
+            e.preventDefault();
+            this.togglePlay();
           }
         });
 
-        // 靈敏度選單
-        document.getElementById("micSensitivitySelect").addEventListener("change", (e) => {
-          this.pitchEngine.setSensitivity(e.target.value);
-        });
+        // 麥克風啟動
+        document.getElementById("startMicBtn").onclick = async () => {
+          if (await this.pitchEngine.initMic()) {
+            await this.audioEngine.init();
+            document.getElementById("micPromptOverlay").style.display = "none";
+          }
+        };
 
-        // 播放與暫停
-        this.playPauseBtn.addEventListener("click", () => this.togglePlay());
-        this.rewindBtn.addEventListener("click", () => {
+        // 靈敏度
+        document.getElementById("micSensitivitySelect").onchange = (e) => {
+          this.pitchEngine.setSensitivity(e.target.value);
+        };
+
+        // 播放暫停
+        this.playPauseBtn.onclick = () => this.togglePlay();
+        document.getElementById("rewindBtn").onclick = () => {
           this.currentTime = 0;
           this.userTrail = [];
-        });
+        };
 
-        // BPM 按鈕事件
-        this.speedDownBtn.addEventListener("click", () => this.setBpm(this.currentBpm - 2));
-        this.speedUpBtn.addEventListener("click", () => this.setBpm(this.currentBpm + 2));
-        this.speedDown5Btn.addEventListener("click", () => this.setBpm(this.currentBpm - 5));
-        this.speedUp5Btn.addEventListener("click", () => this.setBpm(this.currentBpm + 5));
-        this.origBpmBtn.addEventListener("click", () => this.setBpm(this.originalBpm));
-        this.bpmInputField.addEventListener("change", (e) => this.setBpm(Number(e.target.value)));
+        // 節拍器開關
+        this.metronomeToggleBtn.onclick = () => {
+          this.metronomeOn = !this.metronomeOn;
+          this.metroStatusLabel.textContent = this.metronomeOn ? "開" : "關";
+          this.metroStatusLabel.style.color = this.metronomeOn ? "#34d399" : "#94a3b8";
+        };
 
-        // 移調事件
-        document.getElementById("transposeDown").addEventListener("click", () => {
+        // 節拍器音量聯動 (頂部與混音器雙向同步)
+        const updateMetroVol = (val) => {
+          this.audioEngine.metronomeVolume = val / 100;
+          this.metroVolumeSlider.value = val;
+          this.metroVolValLabel.textContent = val + "%";
+          if (this.mixerMetroVolSlider) this.mixerMetroVolSlider.value = val;
+          if (this.mixerMetroVolLabel) this.mixerMetroVolLabel.textContent = val + "%";
+        };
+
+        this.metroVolumeSlider.oninput = (e) => updateMetroVol(Number(e.target.value));
+        if (this.mixerMetroVolSlider) {
+          this.mixerMetroVolSlider.oninput = (e) => updateMetroVol(Number(e.target.value));
+        }
+
+        // 倒數開關
+        this.countInToggleBtn.onclick = () => {
+          this.countInEnabled = !this.countInEnabled;
+          this.countInStatusLabel.textContent = this.countInEnabled ? "開 (4拍)" : "關";
+          this.countInStatusLabel.style.color = this.countInEnabled ? "#38bdf8" : "#94a3b8";
+        };
+
+        // BPM 微調（隨時可調，未播放亦立即響應）
+        document.getElementById("speedDownBtn").onclick = () => this.setBpm(this.currentBpm - 2);
+        document.getElementById("speedUpBtn").onclick = () => this.setBpm(this.currentBpm + 2);
+        document.getElementById("speedDown5Btn").onclick = () => this.setBpm(this.currentBpm - 5);
+        document.getElementById("speedUp5Btn").onclick = () => this.setBpm(this.currentBpm + 5);
+        document.getElementById("origBpmBtn").onclick = () => this.setBpm(this.originalBpm);
+        this.bpmInputField.oninput = (e) => this.setBpm(Number(e.target.value));
+        this.bpmInputField.onchange = (e) => this.setBpm(Number(e.target.value));
+
+        // 移調
+        document.getElementById("transposeDown").onclick = () => {
           this.transpose--;
-          this.transposeVal.textContent = this.transpose > 0 ? "+" + this.transpose : this.transpose;
-        });
-        document.getElementById("transposeUp").addEventListener("click", () => {
+          document.getElementById("transposeVal").textContent = this.transpose > 0 ? "+" + this.transpose : this.transpose;
+        };
+        document.getElementById("transposeUp").onclick = () => {
           this.transpose++;
-          this.transposeVal.textContent = this.transpose > 0 ? "+" + this.transpose : this.transpose;
-        });
+          document.getElementById("transposeVal").textContent = this.transpose > 0 ? "+" + this.transpose : this.transpose;
+        };
 
         // 導音開關
-        this.leadMuteToggle.addEventListener("click", () => {
+        document.getElementById("leadMuteToggle").onclick = () => {
           this.audioEngine.isMuted = !this.audioEngine.isMuted;
-          this.leadMuteIcon.textContent = this.audioEngine.isMuted ? "🔇" : "🔊";
-          this.leadMuteToggle.classList.toggle("text-rose-400", this.audioEngine.isMuted);
-        });
+          document.getElementById("leadMuteIcon").textContent = this.audioEngine.isMuted ? "🔇" : "🔊";
+        };
 
-        // 下拉選單選擇歌曲
-        this.presetSelect.addEventListener("change", async (e) => {
+        // 歌曲選擇
+        this.presetSelect.onchange = async (e) => {
           const val = e.target.value;
-          if (val.startsWith("cloud_")) {
-            const idx = parseInt(val.replace("cloud_", ""), 10);
-            if (CLOUD_SONGS[idx]) this.loadCloudSong(CLOUD_SONGS[idx]);
-          } else if (val.startsWith("custom_")) {
+          if (val.startsWith("custom_")) {
             const id = val.replace("custom_", "");
             const songs = await songDB.getAllSongs();
-            const found = songs.find((s) => s.id === id);
+            const found = songs.find(s => s.id === id);
             if (found) this.loadCustomSong(found);
           } else {
             this.loadPreset(val);
           }
-        });
+        };
 
-        // 曲庫模態框開關
-        document.getElementById("openLibraryModalBtn").addEventListener("click", () => {
+        // 曲庫開關
+        document.getElementById("openLibraryModalBtn").onclick = () => {
           this.refreshLibraryUI();
           this.libraryModal.classList.remove("hidden");
-        });
-        document.getElementById("closeLibraryModalBtn").addEventListener("click", () => {
-          this.libraryModal.classList.add("hidden");
-        });
-        document.getElementById("closeLibraryModalBottomBtn").addEventListener("click", () => {
-          this.libraryModal.classList.add("hidden");
-        });
+        };
+        document.getElementById("closeLibraryModalBtn").onclick = () => this.libraryModal.classList.add("hidden");
+        document.getElementById("closeLibraryModalBottomBtn").onclick = () => this.libraryModal.classList.add("hidden");
 
-        // 載入 MIDI 檔案並存入本地虛擬資料庫
-        document.getElementById("midiFileInput").addEventListener("change", async (e) => {
-          const file = e.target.files[0];
+        // 音軌彈窗開關
+        this.openTrackModalBtn.onclick = () => {
+          this.refreshTrackUI();
+          this.trackModal.classList.remove("hidden");
+        };
+        document.getElementById("closeTrackModalBtn").onclick = () => this.trackModal.classList.add("hidden");
+        document.getElementById("closeTrackModalBottomBtn").onclick = () => this.trackModal.classList.add("hidden");
+
+        // 混音器開關
+        this.openMixerModalBtn.onclick = () => {
+          this.refreshMixerUI();
+          this.mixerModal.classList.remove("hidden");
+        };
+        document.getElementById("closeMixerModalBtn").onclick = () => this.mixerModal.classList.add("hidden");
+        // 上傳 MIDI (含完整錯誤捕捉與狀態提示)
+        document.getElementById("midiFileInput").onchange = async (e) => {
+          const file = e.target.files && e.target.files[0];
           if (!file) return;
-
           try {
-            const buffer = await file.arrayBuffer();
-            const result = SimpleMidiParser.parse(buffer);
-
-            if (result.notes.length === 0) {
-              alert("未能在檔案中讀取到音符事件！");
+            const buf = await file.arrayBuffer();
+            const parsed = SimpleMidiParser.parse(buf);
+            if (!parsed.tracks || parsed.tracks.length === 0) {
+              window.alert("此 MIDI 檔案中未偵測到任何音符，請確認是否為有效音軌！");
               return;
             }
-
-            const newSong = {
+            const songObj = {
               id: "song_" + Date.now(),
-              name: file.name.replace(/\.(mid|midi)$/i, ""),
-              bpm: result.bpm,
-              notes: result.notes,
+              name: file.name.replace(/\.[^/.]+$/, ""),
+              bpm: parsed.bpm,
+              tracks: parsed.tracks,
               savedAt: new Date().toLocaleDateString()
             };
-
-            // 存入本機 IndexedDB 虛擬資料庫
-            await songDB.saveSong(newSong);
+            await songDB.saveSong(songObj);
             await this.refreshLibraryUI();
-            this.loadCustomSong(newSong);
+            this.loadCustomSong(songObj);
           } catch (err) {
-            console.error("MIDI 解析錯誤:", err);
-            alert("MIDI 檔案格式有誤或無法解析！");
+            console.error("MIDI 解析失敗:", err);
+            window.alert("讀取 MIDI 失敗：" + err.message);
+          } finally {
+            e.target.value = ""; // 清空以便再次選取同檔名
+          }
+        };
+
+        // ================= 頂部小時間軸（支援手柄縮放、框體拖曳與滾輪） =================
+        const timelineTrack = document.getElementById("timelineTrack");
+        const vpBox = document.getElementById("timelineViewportBox");
+        const handleL = document.getElementById("vpHandleL");
+        const handleR = document.getElementById("vpHandleR");
+
+        let dragMode = null; // 'pan', 'resizeL', 'resizeR'
+        let dragStartX = 0;
+        let startWinSec = 5.0;
+        let startCurrTime = 0;
+
+        handleL.addEventListener("mousedown", (e) => {
+          e.stopPropagation();
+          dragMode = "resizeL";
+          dragStartX = e.clientX;
+          startWinSec = this.viewWindowSeconds;
+        });
+
+        handleR.addEventListener("mousedown", (e) => {
+          e.stopPropagation();
+          dragMode = "resizeR";
+          dragStartX = e.clientX;
+          startWinSec = this.viewWindowSeconds;
+        });
+
+        vpBox.addEventListener("mousedown", (e) => {
+          e.stopPropagation();
+          dragMode = "pan";
+          dragStartX = e.clientX;
+          startCurrTime = this.currentTime;
+        });
+
+        timelineTrack.addEventListener("mousedown", (e) => {
+          const rect = timelineTrack.getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          this.currentTime = ratio * this.songDuration;
+          dragMode = "pan";
+          dragStartX = e.clientX;
+          startCurrTime = this.currentTime;
+        });
+
+        window.addEventListener("mousemove", (e) => {
+          if (!dragMode) return;
+          const rect = timelineTrack.getBoundingClientRect();
+          const deltaX = e.clientX - dragStartX;
+
+          if (dragMode === "pan") {
+            const timeDelta = (deltaX / rect.width) * this.songDuration;
+            this.currentTime = Math.max(0, Math.min(this.songDuration, startCurrTime + timeDelta));
+          } else if (dragMode === "resizeR") {
+            const secDelta = (deltaX / rect.width) * this.songDuration;
+            this.viewWindowSeconds = Math.max(2.0, Math.min(25.0, startWinSec + secDelta));
+          } else if (dragMode === "resizeL") {
+            const secDelta = -(deltaX / rect.width) * this.songDuration;
+            this.viewWindowSeconds = Math.max(2.0, Math.min(25.0, startWinSec + secDelta));
           }
         });
 
-        // 時間軸點擊跳轉
-        document.getElementById("timelineTrack").addEventListener("click", (e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const clickX = e.clientX - rect.left;
-          const ratio = Math.max(0, Math.min(1, clickX / rect.width));
-          this.currentTime = ratio * this.songDuration;
+        window.addEventListener("mouseup", () => {
+          dragMode = null;
         });
 
-        // 其他模態框
-        document.getElementById("openTrackModalBtn").addEventListener("click", () => {
-          document.getElementById("trackModal").classList.remove("hidden");
-        });
-        document.getElementById("closeTrackModalBtn").addEventListener("click", () => {
-          document.getElementById("trackModal").classList.add("hidden");
-        });
-        document.getElementById("confirmTracksBtn").addEventListener("click", () => {
-          document.getElementById("trackModal").classList.add("hidden");
-        });
+        // 在頂部時間軸上滾輪：直接放大/縮小時間軸可視範圍
+        timelineTrack.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? 0.6 : -0.6;
+          this.viewWindowSeconds = Math.max(2.0, Math.min(25.0, this.viewWindowSeconds + delta));
+        }, { passive: false });
 
-        document.getElementById("openMixerModalBtn").addEventListener("click", () => {
-          document.getElementById("mixerModal").classList.remove("hidden");
-        });
-        document.getElementById("closeMixerModalBtn").addEventListener("click", () => {
-          document.getElementById("mixerModal").classList.add("hidden");
-        });
+        // 主畫布觸控兩指捏合縮放（Pinch-to-zoom）與電腦滾輪縮放
+        let initialPinchDist = null;
+        let initialWindowSec = 5.0;
+
+        this.canvas.addEventListener("touchstart", (e) => {
+          if (e.touches.length === 2) {
+            initialPinchDist = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+            initialWindowSec = this.viewWindowSeconds;
+          }
+        }, { passive: true });
+
+        this.canvas.addEventListener("touchmove", (e) => {
+          if (e.touches.length === 2 && initialPinchDist) {
+            const curDist = Math.abs(e.touches[0].clientX - e.touches[1].clientX);
+            const scale = initialPinchDist / Math.max(10, curDist);
+            this.viewWindowSeconds = Math.max(2.0, Math.min(25.0, initialWindowSec * scale));
+          }
+        }, { passive: true });
+
+        this.canvas.addEventListener("touchend", () => {
+          initialPinchDist = null;
+        }, { passive: true });
+
+        this.canvas.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? 0.5 : -0.5;
+          this.viewWindowSeconds = Math.max(2.0, Math.min(25.0, this.viewWindowSeconds + delta));
+        }, { passive: false });
       }
 
-      togglePlay() {
-        this.isPlaying = !this.isPlaying;
+      async togglePlay() {
         if (this.isPlaying) {
-          this.playIcon.textContent = "⏸";
-          this.playText.textContent = "暫停";
-          this.playPauseBtn.classList.replace("bg-pink-500", "bg-amber-500");
-          this.audioEngine.init();
-        } else {
+          // 暫停
+          this.isPlaying = false;
           this.playIcon.textContent = "▶";
-          this.playText.textContent = "播放";
-          this.playPauseBtn.classList.replace("bg-amber-500", "bg-pink-500");
+          this.playText.textContent = "播放 (Space)";
+          this.playPauseBtn.className = "btn btn-primary";
+        } else {
+          await this.audioEngine.init();
+          // 強制解鎖瀏覽器音訊輸出 (Autoplay Resume)
+          if (this.audioEngine.ctx && this.audioEngine.ctx.state === "suspended") {
+            await this.audioEngine.ctx.resume();
+          }
+
+          // 判斷是否需要 4 拍倒數
+          if (this.countInEnabled && this.currentTime === 0 && !this.isCountingDown) {
+            this.startCountIn();
+          } else {
+            this.startPlaying();
+          }
         }
+      }
+
+      startCountIn() {
+        this.isCountingDown = true;
+        this.countDownStep = 4;
+        this.countInOverlay.classList.remove("hidden");
+        const beatInterval = (60 / this.currentBpm) * 1000;
+
+        const countTick = () => {
+          if (!this.isCountingDown) return;
+          if (this.countDownStep > 0) {
+            this.countInNumber.textContent = this.countDownStep;
+            this.countInNumber.style.animation = "none";
+            void this.countInNumber.offsetWidth; // 觸發重播動畫
+            this.countInNumber.style.animation = "pulsePop 0.35s ease-out";
+
+            // 響叮一聲
+            this.audioEngine.playTick(this.countDownStep === 4);
+            this.countDownStep--;
+            setTimeout(countTick, beatInterval);
+          } else {
+            this.countInOverlay.classList.add("hidden");
+            this.isCountingDown = false;
+            this.startPlaying();
+          }
+        };
+        countTick();
+      }
+
+      startPlaying() {
+        this.isPlaying = true;
+        this.playIcon.textContent = "⏸";
+        this.playText.textContent = "暫停";
+        this.playPauseBtn.className = "btn btn-amber";
+        this.lastBeatIndex = -1;
+        // 重設音符調度時間，防止切換播放時漏音或爆音
+        this.lastScheduledTime = this.currentTime;
       }
 
       formatTime(sec) {
@@ -1232,10 +2101,8 @@
       resize() {
         this.canvas.width = this.canvas.clientWidth * window.devicePixelRatio;
         this.canvas.height = this.canvas.clientHeight * window.devicePixelRatio;
-
         this.timelineCanvas.width = this.timelineCanvas.clientWidth * window.devicePixelRatio;
         this.timelineCanvas.height = this.timelineCanvas.clientHeight * window.devicePixelRatio;
-
         this.renderTimelineMinimap();
       }
 
@@ -1243,15 +2110,17 @@
         const w = this.timelineCanvas.width;
         const h = this.timelineCanvas.height;
         this.tCtx.clearRect(0, 0, w, h);
+        if (!this.currentTracks.length) return;
 
-        if (!this.currentSongNotes.length) return;
-
-        this.tCtx.fillStyle = "rgba(244, 63, 94, 0.4)";
-        this.currentSongNotes.forEach((n) => {
-          const x = (n.start / this.songDuration) * w;
-          const noteW = Math.max(2, (n.dur / this.songDuration) * w);
-          const y = h - ((n.midi - this.minMidi) / (this.maxMidi - this.minMidi)) * h;
-          this.tCtx.fillRect(x, y - 2, noteW, 4);
+        this.currentTracks.forEach((t) => {
+          if (!t.visible) return;
+          this.tCtx.fillStyle = t.role === "lead" ? "rgba(244, 63, 94, 0.7)" : "rgba(234, 179, 8, 0.5)";
+          t.notes.forEach((n) => {
+            const x = (n.start / this.songDuration) * w;
+            const nw = Math.max(2, (n.dur / this.songDuration) * w);
+            const y = h - ((n.midi - this.minMidi) / (this.maxMidi - this.minMidi)) * h;
+            this.tCtx.fillRect(x, y - 2, nw, 3.5);
+          });
         });
       }
 
@@ -1260,44 +2129,62 @@
         const delta = (timestamp - this.lastFrameTime) / 1000;
         this.lastFrameTime = timestamp;
 
-        // 播放時間推進（依據 playbackRate 變速）
         if (this.isPlaying) {
+          const prevTime = this.currentTime;
           this.currentTime += delta * this.playbackRate;
+
+          // ================= 音樂音符發聲調度器 (Audio Note Scheduler) =================
+          if (!this.audioEngine.isMuted) {
+            this.currentTracks.forEach(track => {
+              if (track.muted || track.volume <= 0) return;
+              track.notes.forEach(note => {
+                // 當音符起始時間正好落在本幀前進的區間內，立即發聲
+                if (note.start >= prevTime && note.start < this.currentTime) {
+                  const playMidi = track.isDrum ? note.midi : (note.midi + this.transpose);
+                  this.audioEngine.playNote(
+                    playMidi,
+                    note.dur / this.playbackRate,
+                    track.volume ?? 1.0,
+                    track.program ?? 0,
+                    track.isDrum
+                  );
+                }
+              });
+            });
+          }
+          // 獨立節拍器滴答運算（依據原始音樂秒數對應的真實拍速累計）
+          if (this.metronomeOn) {
+            // 由於 currentTime 是原始 MIDI 秒數，在原始時間中每拍長度為 (60 / this.originalBpm)
+            const beatDurationOriginal = (60 / this.originalBpm);
+            const currentBeat = Math.floor(this.currentTime / beatDurationOriginal);
+            if (currentBeat !== this.lastBeatIndex) {
+              this.lastBeatIndex = currentBeat;
+              const isMeasureStart = (currentBeat % 4 === 0);
+              this.audioEngine.playTick(isMeasureStart);
+            }
+          }
+
           if (this.currentTime >= this.songDuration) {
             this.currentTime = this.songDuration;
             this.togglePlay();
           }
         }
 
-        // 採樣麥克風音高
         const pitchData = this.pitchEngine.detect();
 
-        // 更新頂部麥克風視覺反饋
+        // 麥克風視覺
         if (pitchData.rms > 0) {
-          const pct = Math.min(100, Math.round(pitchData.rms * 600));
-          this.micLevelBar.style.width = pct + "%";
+          this.micLevelBar.style.width = Math.min(100, Math.round(pitchData.rms * 600)) + "%";
         } else {
           this.micLevelBar.style.width = "0%";
         }
+        this.detectedPitchLabel.textContent = pitchData.note || "--";
 
-        if (pitchData.note) {
-          this.detectedPitchLabel.textContent = pitchData.note;
-        } else {
-          this.detectedPitchLabel.textContent = "--";
-        }
-
-        // 記錄使用者音準點
         if (this.isPlaying && pitchData.midi) {
-          this.userTrail.push({
-            time: this.currentTime,
-            midi: pitchData.midi - this.transpose
-          });
+          this.userTrail.push({ time: this.currentTime, midi: pitchData.midi - this.transpose });
         }
-
-        // 清理超時軌跡
         if (this.userTrail.length > 250) this.userTrail.shift();
 
-        // 渲染畫面
         this.renderCanvas(pitchData);
         this.updateTimelineProgress();
 
@@ -1306,152 +2193,393 @@
 
       updateTimelineProgress() {
         const ratio = Math.min(1, Math.max(0, this.currentTime / this.songDuration));
-        const progressEl = document.getElementById("timelineProgress");
-        const thumbEl = document.getElementById("timelineThumb");
-        if (progressEl) progressEl.style.width = `${ratio * 100}%`;
-        if (thumbEl) thumbEl.style.left = `${ratio * 100}%`;
+        document.getElementById("timelineProgress").style.width = `${ratio * 100}%`;
+        document.getElementById("timelineThumb").style.left = `${ratio * 100}%`;
         this.timeCurrent.textContent = this.formatTime(this.currentTime);
+
+        // 更新頂部小時間軸的可視範圍取景框（Viewport Window）
+        if (this.timelineViewportBox) {
+          const pianoWidthRatio = 60 / Math.max(1, this.canvas.width);
+          const leadTimeRatio = 0.22 * (1 - pianoWidthRatio);
+          const startTime = Math.max(0, this.currentTime - this.viewWindowSeconds * leadTimeRatio);
+          const boxLeftPercent = (startTime / this.songDuration) * 100;
+          const boxWidthPercent = Math.min(100 - boxLeftPercent, (this.viewWindowSeconds / this.songDuration) * 100);
+
+          this.timelineViewportBox.style.left = `${boxLeftPercent}%`;
+          this.timelineViewportBox.style.width = `${Math.max(2, boxWidthPercent)}%`;
+        }
       }
 
       renderCanvas(pitchData) {
         const w = this.canvas.width;
         const h = this.canvas.height;
         const ctx = this.ctx;
-
         ctx.clearRect(0, 0, w, h);
 
-        const targetX = w * 0.25; // 當前唱針 X 座標
-        const pixelsPerSecond = (w * 0.75) / this.viewWindowSeconds;
+        const pianoWidth = 65; // 左側鋼琴琴鍵尺寬度
+        const targetX = pianoWidth + (w - pianoWidth) * 0.22; // 唱針基準線位置
+        const pixelsPerSecond = (w - pianoWidth) / this.viewWindowSeconds;
 
-        // 1. 繪製背景鋼琴網格
-        const noteRange = this.maxMidi - this.minMidi;
+        const noteRange = this.maxMidi - this.minMidi; // 84 - 36 = 48 個半音 (C2 ~ C6)
         const rowHeight = h / noteRange;
+
+        // ================= 1. 繪製背景水平音階軌道與男聲/女聲音域標記 =================
+        // 計算男聲 (C2-C3: 36~48) 與女聲 (C4-C5: 60~72) 垂直區域
+        const maleYTop = h - (48 - this.minMidi) * rowHeight;
+        const maleYBottom = h - (36 - this.minMidi) * rowHeight;
+        const femaleYTop = h - (72 - this.minMidi) * rowHeight;
+        const femaleYBottom = h - (60 - this.minMidi) * rowHeight;
+
+        // 男聲專用音域微透背景 (C2-C3)
+        ctx.fillStyle = "rgba(14, 116, 144, 0.08)";
+        ctx.fillRect(pianoWidth, maleYTop, w - pianoWidth, maleYBottom - maleYTop);
+
+        // 女聲專用音域微透背景 (C4-C5)
+        ctx.fillStyle = "rgba(236, 72, 153, 0.08)";
+        ctx.fillRect(pianoWidth, femaleYTop, w - pianoWidth, femaleYBottom - femaleYTop);
 
         for (let m = this.minMidi; m <= this.maxMidi; m++) {
           const y = h - (m - this.minMidi) * rowHeight;
           const isBlack = [1, 3, 6, 8, 10].includes(m % 12);
 
-          ctx.fillStyle = isBlack ? "rgba(15, 23, 42, 0.4)" : "rgba(30, 41, 59, 0.2)";
-          ctx.fillRect(0, y - rowHeight, w, rowHeight);
+          ctx.fillStyle = isBlack ? "rgba(9, 13, 22, 0.7)" : "rgba(15, 23, 42, 0.7)";
+          ctx.fillRect(pianoWidth, y - rowHeight, w - pianoWidth, rowHeight);
 
-          ctx.strokeStyle = "rgba(51, 65, 85, 0.25)";
+          ctx.strokeStyle = isBlack ? "rgba(30, 41, 59, 0.35)" : "rgba(51, 65, 85, 0.22)";
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(0, y);
+          ctx.moveTo(pianoWidth, y);
           ctx.lineTo(w, y);
           ctx.stroke();
-
-          // 標記 C 調
-          if (m % 12 === 0) {
-            ctx.fillStyle = "rgba(148, 163, 184, 0.6)";
-            ctx.font = `${Math.max(10, rowHeight * 0.6)}px monospace`;
-            ctx.fillText(`C${Math.floor(m / 12) - 1}`, 10, y - 4);
-          }
         }
 
-        // 2. 繪製主旋律跑道
-        let currentTargetMidi = null;
+        // ================= 2. 繪製拍子格線（Beat Grid & Measure Lines） =================
+        // 格線精準對齊音樂音符的時間刻度 (以原始拍長為基準，隨跑道捲動完美吸附)
+        const beatDuration = (60 / this.originalBpm);
+        const startTimeInView = this.currentTime - (targetX - pianoWidth) / pixelsPerSecond;
+        const endTimeInView = this.currentTime + (w - targetX) / pixelsPerSecond;
 
-        this.currentSongNotes.forEach((note) => {
-          const noteMidi = note.midi + this.transpose;
-          const startX = targetX + (note.start - this.currentTime) * pixelsPerSecond;
-          const noteW = note.dur * pixelsPerSecond;
-          const noteY = h - (noteMidi - this.minMidi) * rowHeight;
+        const startBeat = Math.floor(startTimeInView / beatDuration);
+        const endBeat = Math.ceil(endTimeInView / beatDuration);
 
-          if (startX + noteW > 0 && startX < w) {
-            // 音條本體
-            ctx.fillStyle = "rgba(244, 63, 94, 0.85)";
+        for (let b = startBeat; b <= endBeat; b++) {
+          const beatTime = b * beatDuration;
+          const lineX = targetX + (beatTime - this.currentTime) * pixelsPerSecond;
+
+          if (lineX >= pianoWidth && lineX <= w) {
+            const isMeasure = (b % 4 === 0);
             ctx.beginPath();
-            ctx.roundRect(startX, noteY - rowHeight + 2, noteW, rowHeight - 4, 4);
-            ctx.fill();
+            ctx.moveTo(lineX, 0);
+            ctx.lineTo(lineX, h);
 
-            // 邊框
-            ctx.strokeStyle = "#fda4af";
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
+            if (isMeasure) {
+              // 4拍一小節實線
+              ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
+              ctx.lineWidth = 1.5;
+              ctx.setLineDash([]);
+              ctx.stroke();
 
-            // 檢查是否正在唱此音
-            if (this.currentTime >= note.start && this.currentTime <= note.start + note.dur) {
-              currentTargetMidi = noteMidi;
-              // 伴奏導音發聲
-              if (this.isPlaying && !this.audioEngine.isMuted) {
-                // 節流發聲
-                if (!note._played) {
-                  this.audioEngine.playNote(noteMidi, note.dur, "lead");
-                  note._played = true;
-                }
-              }
-            } else if (this.currentTime < note.start) {
-              note._played = false;
+              // 小節編號
+              ctx.fillStyle = "rgba(56, 189, 248, 0.6)";
+              ctx.font = "10px monospace";
+              ctx.fillText(`${Math.floor(b / 4) + 1}`, lineX + 4, 14);
+            } else {
+              // 四分音符拍子虛線
+              ctx.strokeStyle = "rgba(100, 116, 139, 0.22)";
+              ctx.lineWidth = 1;
+              ctx.setLineDash([4, 4]);
+              ctx.stroke();
             }
           }
+        }
+        ctx.setLineDash([]);
+
+        // ================= 3. 繪製音符光棒（支援主要實心 / 次要半透明 顏色切換） =================
+        let currentTargetMidi = null;
+        let activeNowLyric = ""; // 儲存當前正在唱的歌詞，供游標光點即時懸浮顯示
+
+        this.currentTracks.forEach((track) => {
+          if (!track.visible) return;
+          const role = track.role;
+          const isPrimary = (track.displayStyle !== "secondary"); // 是否為「主要顯示」
+
+          // 基礎色彩分配
+          let baseRgb = "244, 63, 94"; // 主唱 (粉紅)
+          if (role === "harmony1" || role === "harmony") baseRgb = "245, 158, 11"; // 二部 (琥珀金)
+          else if (role === "harmony2") baseRgb = "16, 185, 129"; // 三部 (翡翠綠)
+          else if (role === "harmony3") baseRgb = "139, 92, 246"; // 四部 (紫羅蘭)
+          else if (role === "accompaniment") baseRgb = "56, 189, 248"; // 伴奏 (天藍)
+
+          // 核心樣式：主要顯示 100% 飽和實心 + 發光；次要顯示 35% 半透明柔化
+          const noteFillColor = isPrimary ? `rgba(${baseRgb}, 0.95)` : `rgba(${baseRgb}, 0.35)`;
+          const noteStrokeColor = isPrimary ? `rgba(${baseRgb}, 1.0)` : `rgba(${baseRgb}, 0.55)`;
+          const glowColor = `rgba(${baseRgb}, ${isPrimary ? 0.8 : 0.2})`;
+
+          track.notes.forEach((note) => {
+            const noteMidi = note.midi + this.transpose;
+            const startX = targetX + (note.start - this.currentTime) * pixelsPerSecond;
+            const noteW = note.dur * pixelsPerSecond;
+            const noteY = h - (noteMidi - this.minMidi) * rowHeight;
+
+            if (startX + noteW > pianoWidth && startX < w) {
+              const drawX = Math.max(pianoWidth, startX);
+              const drawW = Math.max(4, startX + noteW - drawX);
+              const barH = Math.max(12, rowHeight - 2);
+              const barY = noteY - barH + (rowHeight - barH) / 2;
+
+              // 是否為當前唱針判定目標
+              const isHitNow = (this.currentTime >= note.start && this.currentTime <= note.start + note.dur);
+              if (isHitNow) {
+                if (role === "lead" || isPrimary) {
+                  currentTargetMidi = noteMidi;
+                  if (note.lyric && note.lyric.trim()) {
+                    activeNowLyric = note.lyric.trim();
+                  }
+                }
+              }
+
+              // 繪製光棒
+              ctx.save();
+              if (isPrimary) {
+                ctx.shadowColor = glowColor;
+                ctx.shadowBlur = isHitNow ? 16 : 8;
+              } else {
+                ctx.shadowBlur = 0; // 次要半透明軌道不擴散刺眼光暈
+              }
+
+              ctx.fillStyle = noteFillColor;
+              ctx.beginPath();
+              const radius = Math.min(5, barH / 2, drawW / 2);
+              if (ctx.roundRect) {
+                ctx.roundRect(drawX, barY, drawW, barH, radius);
+              } else {
+                ctx.rect(drawX, barY, drawW, barH);
+              }
+              ctx.fill();
+
+              ctx.strokeStyle = noteStrokeColor;
+              ctx.lineWidth = isPrimary ? 1.5 : 1;
+              ctx.stroke();
+              ctx.restore();
+
+              // 頂部立體反光
+              ctx.fillStyle = isPrimary ? "rgba(255, 255, 255, 0.25)" : "rgba(255, 255, 255, 0.08)";
+              ctx.fillRect(drawX + radius, barY + 1, Math.max(0, drawW - radius * 2), Math.max(2, barH * 0.25));
+
+              // 歌詞與音名
+              const hasLyric = note.lyric && note.lyric.trim().length > 0;
+              if (hasLyric) {
+                ctx.save();
+                const lyricFontSize = Math.min(22, Math.max(15, Math.round(barH * 1.05)));
+                ctx.font = `bold ${lyricFontSize}px -apple-system, 'Microsoft YaHei', 'PingFang TC', sans-serif`;
+                ctx.textBaseline = "middle";
+
+                const textMetric = ctx.measureText(note.lyric);
+                const textWidth = textMetric.width;
+                const canFitInside = (drawW >= textWidth + 8);
+
+                let textDrawX = drawX + 6;
+                let textDrawY = barY + barH / 2;
+
+                if (!canFitInside) {
+                  textDrawX = drawX + Math.max(0, (drawW - textWidth) / 2);
+                  textDrawY = barY - (lyricFontSize / 2 + 2);
+                }
+
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
+                ctx.lineWidth = 3.5;
+                ctx.lineJoin = "round";
+                ctx.strokeText(note.lyric, textDrawX, textDrawY);
+
+                ctx.fillStyle = isPrimary ? "#ffffff" : "rgba(255, 255, 255, 0.85)";
+                ctx.fillText(note.lyric, textDrawX, textDrawY);
+                ctx.restore();
+              }
+            }
+          });
         });
 
-        // 3. 繪製使用者歌唱軌跡線
+        // ================= 4. 繪製使用者歌聲軌跡（Pitch Trail） =================
         if (this.userTrail.length > 1) {
-          ctx.beginPath();
+          ctx.save();
           ctx.strokeStyle = "#38bdf8";
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 3.5;
           ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.shadowColor = "#06b6d4";
+          ctx.shadowBlur = 10;
+          ctx.beginPath();
+          let started = false;
 
           for (let i = 0; i < this.userTrail.length; i++) {
-            const p = this.userTrail[i];
-            const px = targetX + (p.time - this.currentTime) * pixelsPerSecond;
-            const py = h - (p.midi - this.minMidi) * rowHeight - rowHeight * 0.5;
-
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
+            const pt = this.userTrail[i];
+            const px = targetX + (pt.time - this.currentTime) * pixelsPerSecond;
+            const py = h - (pt.midi - this.minMidi) * rowHeight;
+            if (px >= pianoWidth && px <= targetX) {
+              if (!started) { ctx.moveTo(px, py); started = true; }
+              else ctx.lineTo(px, py);
+            }
           }
-          ctx.stroke();
+          if (started) ctx.stroke();
+          ctx.restore();
         }
 
-        // 4. 繪製當前判定唱針 (Target Bar)
-        ctx.strokeStyle = "rgba(244, 63, 94, 0.7)";
+        // ================= 5. 繪製垂直唱針基準線與當前歌詞氣泡 (Current Lyric Bubble) =================
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.85)";
         ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(targetX, 0);
         ctx.lineTo(targetX, h);
         ctx.stroke();
-        ctx.setLineDash([]);
 
-        // 5. 繪製使用者即時音準光點
-        if (pitchData.midi) {
-          const userMidi = pitchData.midi;
-          const userY = h - (userMidi - this.minMidi) * rowHeight - rowHeight * 0.5;
+        let userY = null;
+        if (pitchData && pitchData.midi) {
+          const userMidi = pitchData.midi - this.transpose;
+          userY = h - (userMidi - this.minMidi) * rowHeight;
 
-          // 外光環
-          ctx.fillStyle = "rgba(56, 189, 248, 0.35)";
-          ctx.beginPath();
-          ctx.arc(targetX, userY, 14, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 核心光點
-          ctx.fillStyle = "#38bdf8";
-          ctx.beginPath();
-          ctx.arc(targetX, userY, 7, 0, Math.PI * 2);
-          ctx.fill();
-
-          // 計分判定
-          if (currentTargetMidi) {
+          let isMatch = false;
+          if (currentTargetMidi !== null) {
             const diff = Math.abs(userMidi - currentTargetMidi);
-            if (diff < 0.6) {
+            if (diff <= 0.65) {
+              isMatch = true;
               this.score += 2;
-              this.combo++;
-            } else if (diff < 1.2) {
-              this.score += 1;
+              this.combo += 1;
+              this.scoreDisplay.textContent = this.score;
+              this.comboDisplay.textContent = this.combo;
             } else {
               this.combo = 0;
+              this.comboDisplay.textContent = "0";
             }
-            this.scoreDisplay.textContent = this.score;
-            this.comboDisplay.textContent = this.combo;
+          }
+
+          // 繪製唱歌即時指示光球
+          ctx.save();
+          ctx.fillStyle = isMatch ? "#fde047" : "#38bdf8";
+          ctx.shadowColor = isMatch ? "#fde047" : "#0284c7";
+          ctx.shadowBlur = isMatch ? 20 : 12;
+          ctx.beginPath();
+          ctx.arc(targetX, userY, isMatch ? 9 : 7, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = "#ffffff";
+          ctx.beginPath();
+          ctx.arc(targetX, userY, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // 🌟 亮點功能：在唱針光點正上方懸浮「當下要唱的歌詞氣泡」
+        if (activeNowLyric) {
+          ctx.save();
+          const bubbleY = userY !== null ? Math.max(30, userY - 26) : (h * 0.45);
+          ctx.font = "bold 22px -apple-system, 'Microsoft YaHei', 'PingFang TC', sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          const textWidth = ctx.measureText(activeNowLyric).width;
+          const boxPadding = 10;
+          const boxW = Math.max(38, textWidth + boxPadding * 2);
+          const boxH = 32;
+
+          // 氣泡背景框
+          ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+          ctx.strokeStyle = "#ec4899";
+          ctx.lineWidth = 2;
+          ctx.shadowColor = "rgba(236, 72, 153, 0.6)";
+          ctx.shadowBlur = 12;
+
+          if (ctx.roundRect) {
+            ctx.beginPath();
+            ctx.roundRect(targetX - boxW / 2, bubbleY - boxH / 2, boxW, boxH, 8);
+            ctx.fill();
+            ctx.stroke();
+          } else {
+            ctx.fillRect(targetX - boxW / 2, bubbleY - boxH / 2, boxW, boxH);
+            ctx.strokeRect(targetX - boxW / 2, bubbleY - boxH / 2, boxW, boxH);
+          }
+
+          // 氣泡文字
+          ctx.fillStyle = "#fde047";
+          ctx.fillText(activeNowLyric, targetX, bubbleY);
+          ctx.restore();
+        }
+
+        // ================= 6. 繪製左側立體鋼琴琴鍵尺規 (C2 ~ C6 音域與男女聲標籤) =================
+        ctx.save();
+        ctx.fillStyle = "#090d16";
+        ctx.fillRect(0, 0, pianoWidth, h);
+
+        for (let m = this.minMidi; m <= this.maxMidi; m++) {
+          const y = h - (m - this.minMidi) * rowHeight;
+          const isBlack = [1, 3, 6, 8, 10].includes(m % 12);
+          const isC = (m % 12 === 0);
+          const octave = Math.floor(m / 12) - 1;
+
+          // 琴鍵背景
+          if (isBlack) {
+            ctx.fillStyle = "#1e293b";
+            ctx.fillRect(0, y - rowHeight, pianoWidth * 0.66, rowHeight);
+            ctx.fillStyle = "#0f172a";
+            ctx.fillRect(0, y - rowHeight + 1, pianoWidth * 0.63, rowHeight - 2);
+          } else {
+            ctx.fillStyle = "#334155";
+            ctx.fillRect(0, y - rowHeight, pianoWidth, 1);
+          }
+
+          // 當前唱到的音在琴鍵上即時高亮
+          if (pitchData && pitchData.roundedMidi && (pitchData.roundedMidi - this.transpose) === m) {
+            ctx.fillStyle = "rgba(56, 189, 248, 0.65)";
+            ctx.fillRect(0, y - rowHeight, pianoWidth, rowHeight);
+          }
+
+          // C 音標記（C2, C3, C4, C5, C6）
+          if (isC) {
+            const isMiddleC = (octave === 4); // C4 中央 C
+            ctx.fillStyle = isMiddleC ? "#f43f5e" : "#38bdf8";
+            ctx.font = "bold 11px monospace";
+            ctx.textBaseline = "middle";
+            ctx.fillText(`C${octave}`, 6, y - rowHeight / 2);
+
+            // C2/C3 男聲標識、C4/C5 女聲標識
+            ctx.font = "8px sans-serif";
+            if (octave === 2) {
+              ctx.fillStyle = "#06b6d4";
+              ctx.fillText("男低", 28, y - rowHeight / 2);
+            } else if (octave === 3) {
+              ctx.fillStyle = "#38bdf8";
+              ctx.fillText("男聲", 28, y - rowHeight / 2);
+            } else if (octave === 4) {
+              ctx.fillStyle = "#ec4899";
+              ctx.fillText("女中", 28, y - rowHeight / 2);
+            } else if (octave === 5) {
+              ctx.fillStyle = "#f472b6";
+              ctx.fillText("女高", 28, y - rowHeight / 2);
+            }
+
+            // C4 中央 C 向右延伸一條更鮮明的基準紅/藍引導線
+            ctx.strokeStyle = isMiddleC ? "rgba(244, 63, 94, 0.45)" : "rgba(56, 189, 248, 0.25)";
+            ctx.lineWidth = isMiddleC ? 1.5 : 1;
+            ctx.beginPath();
+            ctx.moveTo(pianoWidth, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
           }
         }
+
+        // 琴鍵右側分界線
+        ctx.strokeStyle = "rgba(51, 65, 85, 0.9)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(pianoWidth, 0);
+        ctx.lineTo(pianoWidth, h);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
-    // 啟動主程式
-    window.addEventListener("load", () => {
-      new KTVApp();
+    // 啟動應用程式
+    window.addEventListener("DOMContentLoaded", () => {
+      window.app = new KTVApp();
     });
   </script>
 </body>
