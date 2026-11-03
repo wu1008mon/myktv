@@ -139,6 +139,32 @@
         <button id="transposeUp" class="w-5 h-5 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center">+</button>
       </div>
 
+      <!-- 直接以 BPM 為單位的速度控制（可直接加減 BPM） -->
+      <div class="h-8 flex items-center gap-1.5 bg-slate-800 px-2.5 rounded-lg border border-slate-700 text-xs flex-shrink-0">
+        <!-- 原始 MIDI 速度標籤（點擊一鍵還原） -->
+        <button id="origBpmBtn" class="flex items-center gap-1 bg-slate-900/90 hover:bg-slate-900 active:scale-95 px-2 py-0.5 rounded border border-slate-700/60 transition-all" title="點擊一鍵還原為原始 BPM">
+          <span class="text-[9px] text-slate-400">原速:</span>
+          <span id="originalBpmDisplay" class="font-mono font-bold text-amber-300 text-[11px]">120</span>
+        </button>
+
+        <!-- 直接減 BPM 按鈕 -->
+        <button id="speedDown5Btn" class="px-1.5 h-6 rounded bg-slate-700/70 hover:bg-slate-700 active:scale-90 text-slate-300 font-mono text-[10px]" title="減 5 BPM">-5</button>
+        <button id="speedDownBtn" class="w-6 h-6 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center text-xs" title="減 2 BPM">-</button>
+
+        <!-- 當前即時 BPM 數值顯示與微調輸入 -->
+        <div class="flex items-center gap-0.5 px-1 bg-slate-950/80 rounded border border-slate-800 py-0.5">
+          <input type="number" id="bpmInputField" class="w-12 bg-transparent text-center font-mono font-bold text-cyan-400 text-xs focus:outline-none focus:text-white" value="120" min="40" max="280" step="1" title="點擊可直接手動輸入 BPM">
+          <span class="font-mono text-[9px] text-slate-400 pr-0.5">BPM</span>
+        </div>
+
+        <!-- 直接加 BPM 按鈕 -->
+        <button id="speedUpBtn" class="w-6 h-6 rounded bg-slate-700 active:scale-90 text-white font-bold flex items-center justify-center text-xs" title="加 2 BPM">+</button>
+        <button id="speedUp5Btn" class="px-1.5 h-6 rounded bg-slate-700/70 hover:bg-slate-700 active:scale-90 text-slate-300 font-mono text-[10px]" title="加 5 BPM">+5</button>
+
+        <!-- 變速百分比標籤 -->
+        <span id="speedPercentLabel" class="text-[9px] font-mono text-slate-400 px-1">100%</span>
+      </div>
+
       <!-- 導音開關 -->
       <button id="leadMuteToggle" class="h-8 px-2.5 bg-slate-800 active:scale-95 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-1 flex-shrink-0">
         <span id="leadMuteIcon">🔊</span>
@@ -370,6 +396,7 @@
           rawTracks.push({ id: t, name: trackName, program: programNumber, events });
         }
 
+        const calculatedBpm = Math.round(60000000 / globalMicrosecondsPerBeat);
         const secondsPerTick = (globalMicrosecondsPerBeat / 1000000) / timeDivision;
         const parsedTracks = [];
 
@@ -437,7 +464,7 @@
           parsedTracks[0].role = 'lead';
           if (parsedTracks.length > 1) parsedTracks[1].role = 'harmony';
         }
-        return parsedTracks;
+        return { tracks: parsedTracks, bpm: calculatedBpm };
       }
     }
 
@@ -843,6 +870,9 @@
         this.songDuration = 20;
         this.isPlaying = false;
         this.transpose = 0;
+        this.originalBpm = 120;  // 讀取到的 MIDI 原始 BPM
+        this.currentBpm = 120;   // 當前設定的 BPM (直接加減此數值)
+        this.playbackRate = 1.0; // 播放速度倍率 (currentBpm / originalBpm)
         this.score = 0;
         this.combo = 0;
 
@@ -938,6 +968,31 @@
         const transUp = document.getElementById('transposeUp');
         if (transUp) transUp.addEventListener('click', () => this.setTranspose(this.transpose + 1));
 
+        // 直接 BPM 加減控制事件
+        const speedDown = document.getElementById('speedDownBtn');
+        if (speedDown) speedDown.addEventListener('click', () => this.setBpm(this.currentBpm - 2));
+        const speedUp = document.getElementById('speedUpBtn');
+        if (speedUp) speedUp.addEventListener('click', () => this.setBpm(this.currentBpm + 2));
+
+        const speedDown5 = document.getElementById('speedDown5Btn');
+        if (speedDown5) speedDown5.addEventListener('click', () => this.setBpm(this.currentBpm - 5));
+        const speedUp5 = document.getElementById('speedUp5Btn');
+        if (speedUp5) speedUp5.addEventListener('click', () => this.setBpm(this.currentBpm + 5));
+
+        const origBpmBtn = document.getElementById('origBpmBtn');
+        if (origBpmBtn) origBpmBtn.addEventListener('click', () => this.setBpm(this.originalBpm));
+
+        const bpmInput = document.getElementById('bpmInputField');
+        if (bpmInput) {
+          bpmInput.addEventListener('change', (e) => {
+            const val = parseInt(e.target.value, 10);
+            if (!isNaN(val)) this.setBpm(val);
+          });
+          bpmInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') e.target.blur();
+          });
+        }
+
         const leadMute = document.getElementById('leadMuteToggle');
         if (leadMute) {
           leadMute.addEventListener('click', () => {
@@ -962,8 +1017,10 @@
               const reader = new FileReader();
               reader.onload = (ev) => {
                 try {
-                  const parsed = SimpleMidiParser.parse(ev.target.result);
-                  this.loadTracks(parsed);
+                  const parsedResult = SimpleMidiParser.parse(ev.target.result);
+                  this.originalBpm = parsedResult.bpm || 120;
+                  this.loadTracks(parsedResult.tracks);
+                  this.updateSpeedUI();
                   this.openTrackModal();
                 } catch (err) {
                   console.error("MIDI 載入失敗:", err);
@@ -1112,7 +1169,11 @@
       loadPreset(key) {
         if (!PRESET_SONGS[key]) return;
         const cloned = JSON.parse(JSON.stringify(PRESET_SONGS[key]));
+        this.originalBpm = key === 'ode' ? 132 : (key === 'birthday' ? 100 : 96);
+        this.currentBpm = this.originalBpm;
+        this.playbackRate = 1.0;
         this.loadTracks(cloned);
+        this.updateSpeedUI();
       }
 
       loadTracks(tracks) {
@@ -1131,6 +1192,8 @@
         if (this.timeTotal) this.timeTotal.innerText = this.formatTime(this.songDuration);
         this.timelineWindowSec = Math.max(16, this.songDuration * 0.55);
 
+        this.currentBpm = this.originalBpm;
+        this.playbackRate = 1.0;
         this.seekTo(0);
         this.updateTimelineWindow();
         this.renderTimelineMinimap();
@@ -1141,6 +1204,40 @@
         const transVal = document.getElementById('transposeVal');
         if (transVal) transVal.innerText = (this.transpose > 0 ? "+" : "") + this.transpose;
         this.renderTimelineMinimap();
+      }
+
+      // 直接以 BPM 進行調整 (範圍 40 ~ 280 BPM)
+      setBpm(newBpm) {
+        const clampedBpm = Math.max(40, Math.min(280, Math.round(newBpm)));
+        const targetRate = Math.round((clampedBpm / this.originalBpm) * 100) / 100;
+
+        if (this.isPlaying) {
+          // 動態變速時無縫接軌當前進度時間
+          const elapsedSec = (performance.now() - this.playbackStartWallTime) / 1000;
+          this.currentTime = this.playbackStartSongTime + elapsedSec * this.playbackRate;
+          this.playbackStartWallTime = performance.now();
+          this.playbackStartSongTime = this.currentTime;
+        }
+
+        this.currentBpm = clampedBpm;
+        this.playbackRate = Math.max(0.3, Math.min(2.5, targetRate));
+        this.updateSpeedUI();
+      }
+
+      updateSpeedUI() {
+        const origBpmElem = document.getElementById('originalBpmDisplay');
+        const bpmInput = document.getElementById('bpmInputField');
+        const percentLabel = document.getElementById('speedPercentLabel');
+
+        if (origBpmElem) origBpmElem.innerText = this.originalBpm;
+        if (bpmInput && document.activeElement !== bpmInput) {
+          bpmInput.value = this.currentBpm;
+        }
+        if (percentLabel) {
+          const pct = Math.round((this.currentBpm / this.originalBpm) * 100);
+          percentLabel.innerText = `${pct}%`;
+          percentLabel.className = pct === 100 ? "text-[9px] font-mono text-slate-400 px-1" : "text-[9px] font-mono text-cyan-400 font-bold px-1";
+        }
       }
 
       togglePlay() {
@@ -1390,8 +1487,9 @@
 
       loop() {
         if (this.isPlaying) {
+          // 套用變速倍率 (playbackRate)
           const elapsedSec = (performance.now() - this.playbackStartWallTime) / 1000;
-          this.currentTime = this.playbackStartSongTime + elapsedSec;
+          this.currentTime = this.playbackStartSongTime + elapsedSec * this.playbackRate;
 
           if (this.currentTime >= this.songDuration) {
             this.pause();
@@ -1407,7 +1505,9 @@
             track.notes.forEach((note, noteIdx) => {
               const noteKey = `${track.id}_${noteIdx}`;
               if (this.currentTime >= note.start && !this.scheduledNotes.has(noteKey)) {
-                this.audio.playNote(track, note.midi + this.transpose, note.dur, note.vel || 90);
+                // 發聲長度隨變速縮放，確保連音與停頓節奏與跑道視覺完美貼合
+                const scaledDuration = note.dur / this.playbackRate;
+                this.audio.playNote(track, note.midi + this.transpose, scaledDuration, note.vel || 90);
                 this.scheduledNotes.add(noteKey);
               }
             });
