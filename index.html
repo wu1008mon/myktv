@@ -1570,6 +1570,7 @@
         this.playbackRate = 1.0;
         this.currentTime = 0;
         this.isPlaying = false;
+        this.pitchTrail = []; // 保存歷史音高軌跡點 { time, midi, isHit }
 
         // GitHub 雲端曲庫相關設定與狀態
         this.ghOwner = localStorage.getItem("ktv_gh_owner") || "";
@@ -1974,6 +1975,7 @@
         this.songDurationOriginal = maxSec + 2.0;
         this.songDuration = this.songDurationOriginal;
         this.currentTime = 0;
+        this.pitchTrail = [];
         this.pause();
 
         this.updateTimeDisplay();
@@ -2013,6 +2015,7 @@
 
       seek(timeSec) {
         this.currentTime = Math.max(0, Math.min(this.songDuration, timeSec));
+        this.pitchTrail = []; // 拖曳或重播時清空舊軌跡
         this.updateTimeDisplay();
         this.drawTimeline();
       }
@@ -2317,8 +2320,27 @@
         const detectRes = this.pitchEngine.detect();
         this.updateMicUI(detectRes);
 
+        // 紀錄歷史音高軌跡點（播放時依據歌曲時間軸，暫停時依據真實流逝時間向左飄移）
+        const trailTime = this.isPlaying ? this.currentTime : (timestamp / 1000);
+        if (detectRes.pitch && detectRes.midi) {
+          this.pitchTrail.push({
+            time: trailTime,
+            midi: detectRes.midi,
+            isPlayingMode: this.isPlaying
+          });
+        } else {
+          // 沒聲音時插入斷點，避免靜音前後的線條硬連在一起
+          if (this.pitchTrail.length > 0 && this.pitchTrail[this.pitchTrail.length - 1] !== null) {
+            this.pitchTrail.push(null);
+          }
+        }
+        // 只保留最近 300 筆軌跡點以維持流暢度
+        if (this.pitchTrail.length > 300) {
+          this.pitchTrail.shift();
+        }
+
         // 繪製跑道與光條
-        this.renderCanvas(detectRes);
+        this.renderCanvas(detectRes, timestamp);
 
         requestAnimationFrame((ts) => this.renderLoop(ts));
       }
@@ -2359,7 +2381,7 @@
         }
       }
 
-      renderCanvas(detectRes) {
+      renderCanvas(detectRes, timestamp = performance.now()) {
         const w = this.canvas.parentElement.clientWidth;
         const h = this.canvas.parentElement.clientHeight;
         this.ctx.clearRect(0, 0, w, h);
@@ -2461,7 +2483,42 @@
           });
         });
 
-        // 4. 繪製麥克風即時音高光點與懸浮歌詞氣泡
+        // 4. 繪製唱歌歷史音準軌跡線 (Pitch Trail)
+        const refTime = this.isPlaying ? this.currentTime : (timestamp / 1000);
+        this.ctx.save();
+        this.ctx.strokeStyle = "#38bdf8";
+        this.ctx.lineWidth = 3.5;
+        this.ctx.lineCap = "round";
+        this.ctx.lineJoin = "round";
+        this.ctx.shadowColor = "#0284c7";
+        this.ctx.shadowBlur = 8;
+
+        this.ctx.beginPath();
+        let isDrawingPath = false;
+
+        for (let i = 0; i < this.pitchTrail.length; i++) {
+          const pt = this.pitchTrail[i];
+          if (!pt || pt.isPlayingMode !== this.isPlaying) {
+            isDrawingPath = false;
+            continue;
+          }
+          const tx = hitX - (refTime - pt.time) * pps;
+          if (tx < keyW || tx > hitX + 2) {
+            isDrawingPath = false;
+            continue;
+          }
+          const ty = getY(pt.midi);
+          if (!isDrawingPath) {
+            this.ctx.moveTo(tx, ty);
+            isDrawingPath = true;
+          } else {
+            this.ctx.lineTo(tx, ty);
+          }
+        }
+        this.ctx.stroke();
+        this.ctx.restore();
+
+        // 5. 繪製麥克風即時音高光點與懸浮歌詞氣泡
         if (detectRes.pitch && detectRes.midi >= minMidi && detectRes.midi <= maxMidi) {
           const py = getY(detectRes.midi);
 
