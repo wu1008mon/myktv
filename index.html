@@ -551,7 +551,7 @@
               <span style="color: #94a3b8;">當前雲端倉庫：</span>
               <button id="editRepoConfigBtn" style="background: none; border: none; color: #38bdf8; font-size: 10px; cursor: pointer; text-decoration: underline;">⚙️ 設定倉庫路徑</button>
             </div>
-            <div id="repoPathLabel" class="font-mono" style="color: #818cf8; word-break: break-all;">未設定 (請點右上角設定)</div>
+            <div id="repoPathLabel" class="font-mono" style="color: #38bdf8; word-break: break-all;">wu1008mon/ktv-songs/songs</div>
             <div style="font-size: 10px; color: #64748b; line-height: 1.4; border-top: 1px solid #1e293b; padding-top: 6px;">
               💡 <strong>免密鑰提示：</strong>您無需產生任何 Token，只要在 GitHub 網頁把 <code>.mid</code> 檔案拖進倉庫的 <code>songs/</code> 資料夾，這裡就會自動同步列出，全球訪客皆可免密碼直接點唱！
             </div>
@@ -599,7 +599,7 @@
         <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px; font-size: 11px;">
           <div>
             <label style="color: #94a3b8; display: block; margin-bottom: 4px;">GitHub 帳號 (Owner):</label>
-            <input type="text" id="cfgOwnerInput" placeholder="例如：your-username" class="select-dark" style="width: 100%;">
+            <input type="text" id="cfgOwnerInput" placeholder="例如：wu1008mon" class="select-dark" style="width: 100%;">
           </div>
           <div>
             <label style="color: #94a3b8; display: block; margin-bottom: 4px;">倉庫名稱 (Repository):</label>
@@ -1572,12 +1572,13 @@
         this.isPlaying = false;
         this.pitchTrail = []; // 保存歷史音高軌跡點 { time, midi, isHit }
 
-        // GitHub 雲端曲庫相關設定與狀態
-        this.ghOwner = localStorage.getItem("ktv_gh_owner") || "";
-        this.ghRepo = localStorage.getItem("ktv_gh_repo") || "";
+        // GitHub 雲端曲庫相關設定與狀態（出廠預設綁定 wu1008mon/ktv-songs/songs）
+        this.ghOwner = localStorage.getItem("ktv_gh_owner") || "wu1008mon";
+        this.ghRepo = localStorage.getItem("ktv_gh_repo") || "ktv-songs";
         this.ghPath = localStorage.getItem("ktv_gh_path") || "songs";
         this.ghToken = localStorage.getItem("ktv_gh_token") || "";
         this.cloudSongs = [];
+        this.hasAutoLoadedCloud = false;
 
         this.initGitHubIntegration();
       }
@@ -1631,6 +1632,15 @@
           if (countBadge) countBadge.textContent = this.cloudSongs.length;
           this.renderCloudSongList();
           this.syncCloudSongsToPresetSelect();
+
+          // 訪客首次進入網頁抓到雲端歌曲時，自動載入第一首雲端曲目
+          if (this.cloudSongs.length > 0 && !this.hasAutoLoadedCloud) {
+            this.hasAutoLoadedCloud = true;
+            const firstSong = this.cloudSongs[0];
+            const presetSelect = document.getElementById("presetSelect");
+            if (presetSelect) presetSelect.value = "gh_" + firstSong.sha;
+            await this.loadMidiFromUrl(firstSong.download_url, firstSong.name);
+          }
         } catch (err) {
           console.warn("無法取得 GitHub 歌曲:", err);
           if (container) container.innerHTML = `<div style="text-align: center; color: #f43f5e; font-size: 11px; padding: 15px; line-height: 1.5;">❌ 讀取失敗: ${err.message}</div>`;
@@ -1898,7 +1908,7 @@
         this.resizeCanvas();
         window.addEventListener("resize", () => this.resizeCanvas());
 
-        // 載入預設曲目 (小星星)
+        // 載入預設曲目 (小星星作為初始畫面，雲端抓取完成後會自動切換至雲端第一首)
         this.loadPresetSong("preset_twinkle");
         this.refreshLibraryUI();
 
