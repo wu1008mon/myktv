@@ -258,6 +258,14 @@
       100% { transform: scale(1); opacity: 1; }
     }
 
+    @keyframes recBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .rec-blinking {
+      animation: recBlink 1s infinite;
+    }
+
     /* 彈窗樣式 */
     .modal-backdrop {
       position: fixed;
@@ -364,16 +372,19 @@
 
         <button id="rewindBtn" class="btn" title="重頭開始">⏮</button>
 
-        <!-- 錄音與回放功能按鈕群 -->
+        <!-- 錄音、復盤回放與下載功能按鈕群 -->
         <div style="display: flex; align-items: center; gap: 4px; background: #1e293b; padding: 2px 6px; border-radius: 8px; border: 1px solid #334155; height: 32px; flex-shrink: 0;">
-          <button id="recordToggleBtn" class="btn" style="height: 24px; padding: 0 8px; border: none; background: #ef4444; color: white;" title="開唱時同步錄音與記錄音軌">
+          <button id="recordToggleBtn" class="btn" style="height: 24px; padding: 0 8px; border: none; background: #334155; color: #e2e8f0;" title="開啟錄音（播放時同步錄製歌聲與金色音準軌跡）">
             <span id="recDot">🔴</span>
             <span id="recText">錄音: 關</span>
           </button>
-          <button id="replayBtn" class="btn" style="height: 24px; padding: 0 8px; display: none; background: #06b6d4; color: white; border-color: #22d3ee;" title="回放上一輪歌聲與音軌">
-            <span>🔁 復盤回放</span>
+          <button id="replayBtn" class="btn" style="height: 24px; padding: 0 8px; display: none; background: #06b6d4; color: white; border-color: #22d3ee;" title="同步回放錄製歌聲與金色音準光線軌跡">
+            <span id="replayText">🔁 復盤回放</span>
           </button>
-          <button id="clearRecBtn" class="btn" style="height: 24px; padding: 0 6px; display: none; color: #94a3b8;" title="清空當前錄音">
+          <button id="downloadRecBtn" class="btn" style="height: 24px; padding: 0 8px; display: none; background: #10b981; color: white; border-color: #34d399;" title="將剛剛錄製的歌聲下載為音訊檔">
+            <span>💾 下載錄音</span>
+          </button>
+          <button id="clearRecBtn" class="btn" style="height: 24px; padding: 0 6px; display: none; color: #94a3b8;" title="清空當前錄音與金色軌跡">
             <span>✕</span>
           </button>
         </div>
@@ -763,6 +774,10 @@
       }
       async initMic() {
         try {
+          if (this.mediaStream && this.analyser) {
+            if (this.audioCtx && this.audioCtx.state === "suspended") await this.audioCtx.resume();
+            return true;
+          }
           this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
           if (this.audioCtx.state === "suspended") await this.audioCtx.resume();
           this.mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -869,7 +884,6 @@
         if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         if (this.ctx.state === "suspended") await this.ctx.resume();
         if (!this.noiseBuffer && this.ctx) {
-          // 建立 1 秒專用白噪聲緩衝區（供爵士鼓小鼓、鈸使用）
           const len = this.ctx.sampleRate;
           this.noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
           const data = this.noiseBuffer.getChannelData(0);
@@ -877,7 +891,6 @@
         }
       }
 
-      // 真正 GM 128 種樂器聲學物理模擬 (鋼琴、弦樂、吉他、貝斯、管樂、合成器、鼓組)
       playNote(midi, duration = 0.3, volume = 1.0, program = 0, isDrum = false) {
         if (!this.ctx || this.isMuted || volume <= 0) return;
         const now = this.ctx.currentTime;
@@ -885,7 +898,6 @@
         masterOut.gain.value = Math.min(1.5, volume * 0.75);
         masterOut.connect(this.ctx.destination);
 
-        // 第 10 頻道打擊樂（Drums）
         if (isDrum) {
           this.playDrumSound(midi, now, masterOut);
           return;
@@ -895,39 +907,19 @@
         const pGroup = Math.floor(program / 8);
 
         switch (pGroup) {
-          case 0: // 0-7: 鋼琴群 (Piano) - 雙振盪器豐富諧波
-            this.synthPiano(freq, duration, now, masterOut);
-            break;
-          case 1: // 8-15: 鍵盤打擊樂 (Marimba, Glockenspiel, Celesta)
-            this.synthMallet(freq, duration, now, masterOut);
-            break;
-          case 2: // 16-23: 風琴 (Organ)
-            this.synthOrgan(freq, duration, now, masterOut);
-            break;
-          case 3: // 24-31: 吉他 (Acoustic / Electric Guitar)
-            this.synthGuitar(freq, duration, now, masterOut);
-            break;
-          case 4: // 32-39: 貝斯 (Bass - Acoustic, Finger, Slap)
-            this.synthBass(freq, duration, now, masterOut);
-            break;
-          case 5: // 40-47: 弦樂 (Violin, Cello, Harp)
-          case 6: // 48-55: 弦樂合奏與合唱人聲 (String Ensemble, Choir)
-            this.synthStrings(freq, duration, now, masterOut);
-            break;
-          case 7: // 56-63: 銅管 (Brass - Trumpet, Trombone, French Horn)
-            this.synthBrass(freq, duration, now, masterOut);
-            break;
-          case 8: // 64-71: 簧樂 (Sax, Oboe, Clarinet)
-          case 9: // 72-79: 木管 (Flute, Piccolo)
-            this.synthReed(freq, duration, now, masterOut);
-            break;
-          case 10: // 80-87: 合成主音 (Synth Lead)
-          case 11: // 88-95: 合成音色 (Synth Pad)
-            this.synthPad(freq, duration, now, masterOut);
-            break;
-          default: // 其他音色
-            this.synthDefault(freq, duration, now, masterOut);
-            break;
+          case 0: this.synthPiano(freq, duration, now, masterOut); break;
+          case 1: this.synthMallet(freq, duration, now, masterOut); break;
+          case 2: this.synthOrgan(freq, duration, now, masterOut); break;
+          case 3: this.synthGuitar(freq, duration, now, masterOut); break;
+          case 4: this.synthBass(freq, duration, now, masterOut); break;
+          case 5:
+          case 6: this.synthStrings(freq, duration, now, masterOut); break;
+          case 7: this.synthBrass(freq, duration, now, masterOut); break;
+          case 8:
+          case 9: this.synthReed(freq, duration, now, masterOut); break;
+          case 10:
+          case 11: this.synthPad(freq, duration, now, masterOut); break;
+          default: this.synthDefault(freq, duration, now, masterOut); break;
         }
       }
 
@@ -938,7 +930,7 @@
         osc1.type = "triangle";
         osc2.type = "sine";
         osc1.frequency.setValueAtTime(freq, now);
-        osc2.frequency.setValueAtTime(freq * 2, now); // 高八度泛音
+        osc2.frequency.setValueAtTime(freq * 2, now);
         g.gain.setValueAtTime(0.001, now);
         g.gain.linearRampToValueAtTime(0.8, now + 0.012);
         g.gain.exponentialRampToValueAtTime(0.001, now + Math.max(duration + 0.35, 0.5));
@@ -1024,7 +1016,7 @@
         osc1.type = "sawtooth";
         osc2.type = "sawtooth";
         osc1.frequency.setValueAtTime(freq, now);
-        osc2.frequency.setValueAtTime(freq * 1.004, now); // 弦樂雙琴輕微 Detune 營造厚重空氣感
+        osc2.frequency.setValueAtTime(freq * 1.004, now);
         filter.type = "lowpass";
         filter.frequency.setValueAtTime(2000, now);
         g.gain.setValueAtTime(0.001, now);
@@ -1109,7 +1101,7 @@
       }
 
       playDrumSound(midi, now, out) {
-        if (midi === 35 || midi === 36) { // Bass Drum 大鼓
+        if (midi === 35 || midi === 36) {
           const osc = this.ctx.createOscillator();
           const g = this.ctx.createGain();
           osc.frequency.setValueAtTime(130, now);
@@ -1120,7 +1112,7 @@
           g.connect(out);
           osc.start(now);
           osc.stop(now + 0.19);
-        } else if (midi === 38 || midi === 40) { // Snare Drum 小鼓
+        } else if (midi === 38 || midi === 40) {
           if (this.noiseBuffer) {
             const noise = this.ctx.createBufferSource();
             noise.buffer = this.noiseBuffer;
@@ -1145,7 +1137,7 @@
           oscG.connect(out);
           osc.start(now);
           osc.stop(now + 0.11);
-        } else if (midi === 42 || midi === 44 || midi === 46) { // Hi-Hat 腳踏鈸
+        } else if (midi === 42 || midi === 44 || midi === 46) {
           if (this.noiseBuffer) {
             const noise = this.ctx.createBufferSource();
             noise.buffer = this.noiseBuffer;
@@ -1160,7 +1152,7 @@
             g.connect(out);
             noise.start(now);
           }
-        } else { // Toms / Cymbals
+        } else {
           const osc = this.ctx.createOscillator();
           const g = this.ctx.createGain();
           osc.frequency.setValueAtTime(220, now);
@@ -1190,7 +1182,6 @@
       }
     }
 
-    // GM 樂器名稱速查表（128 種 General MIDI 樂器對照）
     const GM_INSTRUMENT_NAMES = [
       "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano", "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavi",
       "Celesta", "Glockenspiel", "Music Box", "Vibraphone", "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
@@ -1216,7 +1207,6 @@
     function quantizeAndFillNotes(notes, bpm = 120) {
       if (!notes || notes.length === 0) return [];
       const beatSec = 60 / bpm;
-      // 以十六分音符 (1/4 拍) 作為量化網格
       const grid = beatSec / 4;
 
       const processed = notes.map(n => ({
@@ -1228,14 +1218,12 @@
 
       processed.sort((a, b) => a.start - b.start);
 
-      // 連續音符無縫吸附：若前後兩音相隔小於 1/2 拍，自動延長前音填滿空隙
       for (let i = 0; i < processed.length - 1; i++) {
         const cur = processed[i];
         const next = processed[i + 1];
         const end = cur.start + cur.dur;
         const gap = next.start - end;
 
-        // 若不是大休止符，將前音長度拉滿至下一音開頭
         if (gap >= -0.01 && gap < beatSec * 0.45) {
           cur.dur = Math.max(cur.dur, next.start - cur.start);
         }
@@ -1243,9 +1231,8 @@
       return processed;
     }
 
-    // 內建標準拍格歌曲（填滿拍子且附帶歌詞與雙軌和聲）
     function buildTwinkleNotes(bpm = 100) {
-      const b = 60 / bpm; // 1拍長度
+      const b = 60 / bpm;
       const seqLead = [
         { m: 60, b: 1, text: "一" }, { m: 60, b: 1, text: "閃" }, { m: 67, b: 1, text: "一" }, { m: 67, b: 1, text: "閃" },
         { m: 69, b: 1, text: "亮" }, { m: 69, b: 1, text: "晶" }, { m: 67, b: 2, text: "晶" },
@@ -1312,11 +1299,10 @@
     }
 
     /* ==========================================================================
-       5. 輕量高效 MIDI 解析器（支援 Running Status、Program Change 樂器、Channel 10 打擊樂與歌詞）
+       5. 輕量高效 MIDI 解析器
        ========================================================================== */
     class SimpleMidiParser {
       static decodeText(bytes) {
-        // 嘗試 UTF-8 ➜ GBK/GB18030 ➜ Big5 ➜ ASCII 多重回退解碼，防止中文歌詞解析失敗
         const u8 = new Uint8Array(bytes);
         try {
           const dec = new TextDecoder("utf-8", { fatal: true });
@@ -1347,15 +1333,15 @@
           return s;
         }
         if (readStr(4) !== "MThd") throw new Error("無效的 MIDI: 缺少 MThd 標頭");
-        offset += 4; // 跳過 chunk 尺寸 (6)
+        offset += 4;
         const formatType = view.getUint16(offset); offset += 2;
         const trackCount = view.getUint16(offset); offset += 2;
         const timeDivision = view.getUint16(offset); offset += 2;
 
         let detectedBpm = 120;
-        let tempoEvents = []; // 保存全局動態拍速事件 { ticks, tempoMicroseconds }
+        let tempoEvents = [];
         const rawTracks = [];
-        const allGlobalLyrics = []; // 全局歌詞池：包含跨軌道的所有歌詞事件 { ticks, text }
+        const allGlobalLyrics = [];
 
         for (let t = 0; t < trackCount; t++) {
           if (offset >= view.byteLength) break;
@@ -1365,9 +1351,9 @@
           const endTrack = offset + chunkLen;
           const trackEvents = [];
           let ticks = 0;
-          let runningStatus = 0; // 支援 MIDI Running Status
+          let runningStatus = 0;
           let trackName = `音軌 ${t + 1}`;
-          let currentProgram = 0; // 預設 GM Grand Piano
+          let currentProgram = 0;
           let isDrumChannel = false;
 
           while (offset < endTrack) {
@@ -1388,9 +1374,9 @@
 
             const eventType = status >> 4;
             const channel = status & 0x0f;
-            if (channel === 9) isDrumChannel = true; // MIDI Channel 10 為標準爵士鼓軌
+            if (channel === 9) isDrumChannel = true;
 
-            if (status === 0xff) { // Meta 事件
+            if (status === 0xff) {
               const metaType = view.getUint8(offset++);
               let metaLen = 0;
               do { byte = view.getUint8(offset++); metaLen = (metaLen << 7) | (byte & 0x7f); } while (byte & 0x80);
@@ -1398,16 +1384,15 @@
               const metaBytes = [];
               for (let k = 0; k < metaLen; k++) metaBytes.push(view.getUint8(offset + k));
 
-              if (metaType === 0x03) { // 軌道名稱
+              if (metaType === 0x03) {
                 const nameStr = SimpleMidiParser.decodeText(metaBytes);
                 if (nameStr) trackName = nameStr;
-              } else if (metaType === 0x05 || metaType === 0x01) { // 歌詞 (0x05) 或文字 (0x01)
+              } else if (metaType === 0x05 || metaType === 0x01) {
                 const lyricStr = SimpleMidiParser.decodeText(metaBytes);
                 if (lyricStr && !lyricStr.startsWith("@") && !lyricStr.startsWith("//")) {
-                  // 存入全局歌詞池與本軌記錄
                   allGlobalLyrics.push({ ticks, text: lyricStr });
                 }
-              } else if (metaType === 0x51 && metaLen === 3) { // Set Tempo
+              } else if (metaType === 0x51 && metaLen === 3) {
                 const t0 = metaBytes[0], t1 = metaBytes[1], t2 = metaBytes[2];
                 const tempoUs = (t0 << 16) | (t1 << 8) | t2;
                 tempoEvents.push({ ticks, tempoUs });
@@ -1416,21 +1401,21 @@
                 }
               }
               offset += metaLen;
-            } else if (status === 0xf0 || status === 0xf7) { // SysEx
+            } else if (status === 0xf0 || status === 0xf7) {
               let sysexLen = 0;
               do { byte = view.getUint8(offset++); sysexLen = (sysexLen << 7) | (byte & 0x7f); } while (byte & 0x80);
               offset += sysexLen;
-            } else if (eventType === 0x0c) { // Program Change (GM 音色)
+            } else if (eventType === 0x0c) {
               currentProgram = view.getUint8(offset++);
-            } else if (eventType === 0x0d) { // Aftertouch
+            } else if (eventType === 0x0d) {
               offset++;
             } else {
               const data1 = view.getUint8(offset++);
               const data2 = view.getUint8(offset++);
 
-              if (eventType === 0x09 && data2 > 0) { // Note On
+              if (eventType === 0x09 && data2 > 0) {
                 trackEvents.push({ type: "noteOn", ticks, midi: data1 });
-              } else if (eventType === 0x08 || (eventType === 0x09 && data2 === 0)) { // Note Off
+              } else if (eventType === 0x08 || (eventType === 0x09 && data2 === 0)) {
                 trackEvents.push({ type: "noteOff", ticks, midi: data1 });
               }
             }
@@ -1444,7 +1429,6 @@
           });
         }
 
-        // 計算時間戳轉換函式（支援動態 tempo 與多段速度）
         if (tempoEvents.length === 0) tempoEvents.push({ ticks: 0, tempoUs: 500000 });
         tempoEvents.sort((a, b) => a.ticks - b.ticks);
 
@@ -1468,7 +1452,6 @@
           return totalSec;
         };
 
-        // 將歌詞池全部換算為秒數，並依時間排序
         const lyricsWithSeconds = allGlobalLyrics.map(lyr => ({
           time: ticksToSeconds(lyr.ticks),
           text: lyr.text
@@ -1477,7 +1460,7 @@
         const parsedTracks = [];
         rawTracks.forEach((tObj, idx) => {
           const melody = [];
-          const activeNotes = {}; // midi -> startSec
+          const activeNotes = {};
 
           tObj.events.forEach(ev => {
             const sec = ticksToSeconds(ev.ticks);
@@ -1499,13 +1482,10 @@
           if (melody.length > 0) {
             melody.sort((a, b) => a.start - b.start);
 
-            // ================= 歌詞時間容差吸附算法 =================
-            // 只要歌詞時間在音符開始的 -0.25 秒到 +0.35 秒之內，就直接掛載到該音符
             const beatSec = 60 / detectedBpm;
             const tolerance = Math.max(0.2, beatSec * 0.4);
 
             melody.forEach(note => {
-              // 尋找最近的歌詞
               let bestMatch = null;
               let minDiff = Infinity;
               for (let li = 0; li < lyricsWithSeconds.length; li++) {
@@ -1563,15 +1543,28 @@
         this.timelineViewportBox = document.getElementById("timelineViewportBox");
 
         this.currentTracks = [];
+        this.currentSongTitle = "KTV練唱";
         this.songDuration = 20;
-        this.songDurationOriginal = 20; // 保存原始秒數以便隨 BPM 即時換算
+        this.songDurationOriginal = 20;
         this.originalBpm = 120;
         this.currentBpm = 120;
         this.playbackRate = 1.0;
         this.currentTime = 0;
         this.isPlaying = false;
-        this.pitchTrail = []; // 保存歷史音高軌跡點 { time, midi, isHit }
-        this.zoomScale = 1.0; // 時間軸水平縮放倍率 (0.4 ~ 3.5)
+        this.pitchTrail = [];
+        this.zoomScale = 1.0;
+
+        // 錄音、復盤回放、下載與錄音光線軌跡狀態
+        this.isRecordingArmed = false;      // 是否開啟錄音開關
+        this.mediaRecorder = null;          // 瀏覽器原生錄音器
+        this.recordedChunks = [];           // 錄音二進位片段
+        this.recordedAudioBlob = null;      // 完整錄音 Blob
+        this.recordedAudioUrl = null;       // 完整錄音播放網址
+        this.recordedAudioEl = null;        // 回放用 Audio 元素
+        this.recordedFileExt = "webm";      // 下載副檔名
+        this.recordedStartTime = 0;         // 開始錄音時的歌曲秒數
+        this.recordedPitchTrail = [];       // 整首錄音保存的完整金色音準光線軌跡 [{ time, midi }]
+        this.isReplaying = false;           // 是否正在復盤回放
 
         // GitHub 雲端曲庫相關設定與狀態（出廠預設綁定 wu1008mon/ktv-songs/songs）
         this.ghOwner = localStorage.getItem("ktv_gh_owner") || "wu1008mon";
@@ -1584,11 +1577,229 @@
         this.initGitHubIntegration();
       }
 
+      /* ==================== 錄音、復盤回放、下載與軌跡系統 ==================== */
+      setupRecordingControls() {
+        const recToggleBtn = document.getElementById("recordToggleBtn");
+        const replayBtn = document.getElementById("replayBtn");
+        const downloadRecBtn = document.getElementById("downloadRecBtn");
+        const clearRecBtn = document.getElementById("clearRecBtn");
+
+        // 1. 錄音開關切換（支援隨時開啟與隨時點擊結束封裝）
+        recToggleBtn.onclick = async () => {
+          if (this.isReplaying) this.stopReplay();
+
+          const isActivelyRecording = this.mediaRecorder && this.mediaRecorder.state === "recording";
+
+          if (isActivelyRecording) {
+            this.isRecordingArmed = false;
+            this.stopMediaRecorder();
+            this.updateRecordingUI();
+            return;
+          }
+
+          if (!this.isRecordingArmed) {
+            const micOk = await this.pitchEngine.initMic();
+            if (!micOk) return;
+            document.getElementById("micPromptOverlay").style.display = "none";
+            this.isRecordingArmed = true;
+            this.updateRecordingUI();
+
+            if (this.isPlaying) {
+              this.startMediaRecorder();
+            }
+          } else {
+            this.isRecordingArmed = false;
+            this.updateRecordingUI();
+          }
+        };
+
+        // 2. 復盤回放切換
+        replayBtn.onclick = () => {
+          if (this.isReplaying) {
+            this.stopReplay();
+          } else {
+            this.startReplay();
+          }
+        };
+
+        // 3. 下載錄音檔案
+        downloadRecBtn.onclick = () => {
+          if (!this.recordedAudioBlob || !this.recordedAudioUrl) return;
+          const a = document.createElement("a");
+          const safeTitle = (this.currentSongTitle || "KTV練唱").replace(/[^\w\u4e00-\u9fa5\-]/g, "_");
+          const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+          a.href = this.recordedAudioUrl;
+          a.download = `${safeTitle}_錄音_${timestamp}.${this.recordedFileExt}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        };
+
+        // 4. 清空錄音與金色軌跡
+        clearRecBtn.onclick = () => {
+          this.stopReplay();
+          this.stopMediaRecorder();
+          this.recordedChunks = [];
+          this.recordedPitchTrail = [];
+          this.recordedAudioBlob = null;
+          if (this.recordedAudioUrl) {
+            URL.revokeObjectURL(this.recordedAudioUrl);
+            this.recordedAudioUrl = null;
+          }
+          this.recordedAudioEl = null;
+          this.drawTimeline();
+          this.updateRecordingUI();
+        };
+      }
+
+      startMediaRecorder() {
+        if (!this.pitchEngine.mediaStream) return;
+        if (this.mediaRecorder && this.mediaRecorder.state === "recording") return;
+
+        this.recordedChunks = [];
+        this.recordedPitchTrail = [];
+        this.recordedStartTime = this.currentTime;
+        if (this.recordedAudioUrl) {
+          URL.revokeObjectURL(this.recordedAudioUrl);
+          this.recordedAudioUrl = null;
+        }
+        this.recordedAudioBlob = null;
+
+        let mimeType = "";
+        if (typeof MediaRecorder !== "undefined") {
+          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+            mimeType = "audio/webm;codecs=opus";
+            this.recordedFileExt = "webm";
+          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+            mimeType = "audio/mp4";
+            this.recordedFileExt = "m4a";
+          } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+            mimeType = "audio/ogg";
+            this.recordedFileExt = "ogg";
+          }
+        }
+
+        try {
+          this.mediaRecorder = mimeType
+            ? new MediaRecorder(this.pitchEngine.mediaStream, { mimeType })
+            : new MediaRecorder(this.pitchEngine.mediaStream);
+
+          this.mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              this.recordedChunks.push(e.data);
+            }
+          };
+
+          this.mediaRecorder.onstop = () => {
+            if (this.recordedChunks.length > 0) {
+              this.recordedAudioBlob = new Blob(this.recordedChunks, {
+                type: this.mediaRecorder.mimeType || "audio/webm"
+              });
+              this.recordedAudioUrl = URL.createObjectURL(this.recordedAudioBlob);
+              this.recordedAudioEl = new Audio(this.recordedAudioUrl);
+              this.recordedAudioEl.onended = () => {
+                this.stopReplay();
+              };
+            }
+            this.drawTimeline();
+            this.updateRecordingUI();
+          };
+
+          this.mediaRecorder.start(150);
+          this.updateRecordingUI();
+        } catch (err) {
+          console.error("啟動 MediaRecorder 失敗:", err);
+        }
+      }
+
+      stopMediaRecorder() {
+        if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+          try {
+            this.mediaRecorder.stop();
+          } catch (e) {}
+        }
+      }
+
+      async startReplay() {
+        if (!this.recordedAudioUrl && this.recordedPitchTrail.length === 0) return;
+
+        this.isRecordingArmed = false;
+        this.stopMediaRecorder();
+
+        this.isReplaying = true;
+        const startPos = this.recordedStartTime || 0;
+        this.seek(startPos);
+        this.updateRecordingUI();
+
+        await this.play();
+        if (this.recordedAudioEl) {
+          this.recordedAudioEl.currentTime = 0;
+          this.recordedAudioEl.play().catch(err => console.warn("回放音訊失敗:", err));
+        }
+      }
+
+      stopReplay() {
+        if (!this.isReplaying) return;
+        this.isReplaying = false;
+        if (this.recordedAudioEl) {
+          this.recordedAudioEl.pause();
+          this.recordedAudioEl.currentTime = 0;
+        }
+        this.pause();
+        this.updateRecordingUI();
+      }
+
+      updateRecordingUI() {
+        const recToggleBtn = document.getElementById("recordToggleBtn");
+        const recDot = document.getElementById("recDot");
+        const recText = document.getElementById("recText");
+        const replayBtn = document.getElementById("replayBtn");
+        const replayText = document.getElementById("replayText");
+        const downloadRecBtn = document.getElementById("downloadRecBtn");
+        const clearRecBtn = document.getElementById("clearRecBtn");
+
+        const isActivelyRecording = this.mediaRecorder && this.mediaRecorder.state === "recording";
+
+        if (isActivelyRecording) {
+          recToggleBtn.style.background = "#ef4444";
+          recToggleBtn.style.color = "#ffffff";
+          recDot.textContent = "⏺";
+          recDot.classList.add("rec-blinking");
+          recText.textContent = "錄音中 (點此完成)";
+        } else if (this.isRecordingArmed) {
+          recToggleBtn.style.background = "#dc2626";
+          recToggleBtn.style.color = "#ffffff";
+          recDot.textContent = "🔴";
+          recDot.classList.remove("rec-blinking");
+          recText.textContent = "錄音: 待命 (按播放開錄)";
+        } else {
+          recToggleBtn.style.background = "#334155";
+          recToggleBtn.style.color = "#e2e8f0";
+          recDot.textContent = "🔴";
+          recDot.classList.remove("rec-blinking");
+          recText.textContent = "錄音: 關";
+        }
+
+        const hasRecording = Boolean(this.recordedAudioUrl || this.recordedPitchTrail.length > 0);
+        replayBtn.style.display = hasRecording ? "inline-flex" : "none";
+        downloadRecBtn.style.display = this.recordedAudioUrl ? "inline-flex" : "none";
+        clearRecBtn.style.display = hasRecording ? "inline-flex" : "none";
+
+        if (this.isReplaying) {
+          replayBtn.style.background = "#f59e0b";
+          replayBtn.style.borderColor = "#fbbf24";
+          replayText.textContent = "⏹ 停止復盤";
+        } else {
+          replayBtn.style.background = "#06b6d4";
+          replayBtn.style.borderColor = "#22d3ee";
+          replayText.textContent = "🔁 復盤回放";
+        }
+      }
+
       /* ==================== GitHub 雲端曲庫對接模組 ==================== */
       initGitHubIntegration() {
         this.updateRepoPathLabel();
         this.initCloudUIEvents();
-        // 頁面載入時若已配置倉庫，自動拉取曲庫
         if (this.ghOwner && this.ghRepo) {
           this.fetchCloudSongs();
         }
@@ -1617,7 +1828,6 @@
           const cleanPath = this.ghPath ? `/${this.ghPath}` : "";
           const url = `https://api.github.com/repos/${this.ghOwner}/${this.ghRepo}/contents${cleanPath}`;
           const headers = { "Accept": "application/vnd.github.v3+json" };
-          // 若有設定管理員 Token 則帶上（可提高 API 請求限額），無 Token 則直接以公開訪客身份讀取
           if (this.ghToken) headers["Authorization"] = `token ${this.ghToken}`;
 
           const res = await fetch(url, { headers });
@@ -1634,7 +1844,6 @@
           this.renderCloudSongList();
           this.syncCloudSongsToPresetSelect();
 
-          // 訪客首次進入網頁抓到雲端歌曲時，自動載入第一首雲端曲目
           if (this.cloudSongs.length > 0 && !this.hasAutoLoadedCloud) {
             this.hasAutoLoadedCloud = true;
             const firstSong = this.cloudSongs[0];
@@ -1652,7 +1861,6 @@
         const presetSelect = document.getElementById("presetSelect");
         if (!presetSelect) return;
 
-        // 尋找或建立雲端群組
         let optGroup = presetSelect.querySelector("optgroup[label='☁️ GitHub 雲端曲庫']");
         if (!optGroup) {
           optGroup = document.createElement("optgroup");
@@ -1703,13 +1911,11 @@
             </div>
           `;
 
-          // 訪客點唱事件
           row.querySelector(".gh-play-btn").onclick = async () => {
             document.getElementById("cloudModal").classList.add("hidden");
             await this.loadMidiFromUrl(song.download_url, song.name);
           };
 
-          // 管理員刪除事件
           if (isAuth) {
             row.querySelector(".gh-del-btn").onclick = () => this.deleteCloudSong(song);
           }
@@ -1803,18 +2009,14 @@
         const repoConfigModal = document.getElementById("repoConfigModal");
         const adminAuthModal = document.getElementById("adminAuthModal");
 
-        // 開關雲端曲庫彈窗
         document.getElementById("openCloudModalBtn").onclick = () => {
           cloudModal.classList.remove("hidden");
           this.updateCloudAdminUI();
         };
         document.getElementById("closeCloudModalBtn").onclick = () => cloudModal.classList.add("hidden");
         document.getElementById("closeCloudModalBottomBtn").onclick = () => cloudModal.classList.add("hidden");
-
-        // 重新整理
         document.getElementById("refreshCloudListBtn").onclick = () => this.fetchCloudSongs();
 
-        // 倉庫設定
         document.getElementById("editRepoConfigBtn").onclick = () => {
           document.getElementById("cfgOwnerInput").value = this.ghOwner;
           document.getElementById("cfgRepoInput").value = this.ghRepo;
@@ -1837,7 +2039,6 @@
           this.fetchCloudSongs();
         };
 
-        // 管理員密鑰認證
         document.getElementById("cloudAuthToggleBtn").onclick = () => {
           document.getElementById("adminTokenInput").value = "";
           adminAuthModal.classList.remove("hidden");
@@ -1857,7 +2058,6 @@
           this.renderCloudSongList();
         };
 
-        // 登出鎖定
         document.getElementById("cloudAdminLogoutBtn").onclick = () => {
           this.ghToken = "";
           localStorage.removeItem("ktv_gh_token");
@@ -1865,7 +2065,6 @@
           this.renderCloudSongList();
         };
 
-        // 上傳檔案事件
         const fileInput = document.getElementById("cloudMidiFileInput");
         document.getElementById("triggerCloudUploadBtn").onclick = () => fileInput.click();
         fileInput.onchange = (e) => {
@@ -1873,7 +2072,6 @@
           fileInput.value = "";
         };
 
-        // 歌曲下拉選單聯動點擊雲端歌曲
         const presetSelect = document.getElementById("presetSelect");
         presetSelect.addEventListener("change", async (e) => {
           const opt = presetSelect.options[presetSelect.selectedIndex];
@@ -1906,14 +2104,13 @@
       /* ==================== 播放控制、錄音、介面與畫布核心 ==================== */
       async init() {
         this.setupEventListeners();
+        this.setupRecordingControls();
         this.resizeCanvas();
         window.addEventListener("resize", () => this.resizeCanvas());
 
-        // 載入預設曲目 (小星星作為初始畫面，雲端抓取完成後會自動切換至雲端第一首)
         this.loadPresetSong("preset_twinkle");
         this.refreshLibraryUI();
 
-        // 啟動主渲染與計分循環
         requestAnimationFrame((ts) => this.renderLoop(ts));
       }
 
@@ -1968,6 +2165,7 @@
       }
 
       applyLoadedMidi(parsed, songTitle = "已載入歌曲") {
+        this.currentSongTitle = songTitle.replace(/\.midi?$/i, "");
         this.currentTracks = parsed.tracks;
         this.originalBpm = parsed.bpm;
         this.currentBpm = parsed.bpm;
@@ -1975,7 +2173,6 @@
         document.getElementById("bpmInputField").value = this.currentBpm;
         document.getElementById("originalBpmDisplay").textContent = this.originalBpm;
 
-        // 計算總時長
         let maxSec = 10;
         this.currentTracks.forEach(tr => {
           tr.notes.forEach(n => {
@@ -2011,22 +2208,44 @@
         this.isPlaying = true;
         document.getElementById("playIcon").textContent = "⏸";
         document.getElementById("playText").textContent = "暫停 (Space)";
+
+        if (this.isRecordingArmed && !this.isReplaying) {
+          this.startMediaRecorder();
+        }
       }
 
       pause() {
         this.isPlaying = false;
         document.getElementById("playIcon").textContent = "▶";
         document.getElementById("playText").textContent = "播放 (Space)";
+
+        if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+          this.stopMediaRecorder();
+        }
       }
 
       togglePlay() {
+        if (this.isReplaying) {
+          this.stopReplay();
+          return;
+        }
         if (this.isPlaying) this.pause();
         else this.play();
       }
 
       seek(timeSec) {
         this.currentTime = Math.max(0, Math.min(this.songDuration, timeSec));
-        this.pitchTrail = []; // 拖曳或重播時清空舊軌跡
+        this.pitchTrail = [];
+
+        if (this.isReplaying && this.recordedAudioEl) {
+          const offset = Math.max(0, this.currentTime - (this.recordedStartTime || 0));
+          if (isFinite(this.recordedAudioEl.duration)) {
+            this.recordedAudioEl.currentTime = Math.min(offset, this.recordedAudioEl.duration);
+          } else {
+            this.recordedAudioEl.currentTime = offset;
+          }
+        }
+
         this.updateTimeDisplay();
         this.drawTimeline();
       }
@@ -2042,7 +2261,6 @@
       }
 
       setupEventListeners() {
-        // 空白鍵暫停/播放
         window.addEventListener("keydown", (e) => {
           if (e.code === "Space" && e.target.tagName !== "INPUT") {
             e.preventDefault();
@@ -2053,7 +2271,6 @@
         document.getElementById("playPauseBtn").onclick = () => this.togglePlay();
         document.getElementById("rewindBtn").onclick = () => this.seek(0);
 
-        // BPM 速度微調
         document.getElementById("origBpmBtn").onclick = () => this.setBpm(this.originalBpm);
         document.getElementById("speedDown5Btn").onclick = () => this.setBpm(this.currentBpm - 5);
         document.getElementById("speedDownBtn").onclick = () => this.setBpm(this.currentBpm - 1);
@@ -2061,7 +2278,6 @@
         document.getElementById("speedUp5Btn").onclick = () => this.setBpm(this.currentBpm + 5);
         document.getElementById("bpmInputField").oninput = (e) => this.setBpm(e.target.value);
 
-        // 節拍器與倒數
         const metroBtn = document.getElementById("metronomeToggleBtn");
         metroBtn.onclick = () => {
           this.audioEngine.metronomeEnabled = !this.audioEngine.metronomeEnabled;
@@ -2084,13 +2300,11 @@
           metroSlider.oninput({ target: { value: e.target.value } });
         };
 
-        // 導音靜音切換
         document.getElementById("leadMuteToggle").onclick = () => {
           this.audioEngine.isMuted = !this.audioEngine.isMuted;
           document.getElementById("leadMuteIcon").textContent = this.audioEngine.isMuted ? "🔇" : "🔊";
         };
 
-        // 麥克風啟動與靈敏度
         document.getElementById("startMicBtn").onclick = async () => {
           const ok = await this.pitchEngine.initMic();
           if (ok) document.getElementById("micPromptOverlay").style.display = "none";
@@ -2105,7 +2319,6 @@
           this.pitchEngine.setSensitivity(e.target.value);
         };
 
-        // 本機 MIDI 上傳
         const midiFileInput = document.getElementById("midiFileInput");
         midiFileInput.onchange = async (e) => {
           const file = e.target.files[0];
@@ -2115,7 +2328,6 @@
             const parsed = SimpleMidiParser.parse(buf);
             this.applyLoadedMidi(parsed, file.name);
 
-            // 儲存至 IndexedDB
             await songDB.saveSong({
               id: "song_" + Date.now(),
               name: file.name.replace(/\.midi?$/i, ""),
@@ -2128,10 +2340,9 @@
           }
         };
 
-        // 預設歌曲切換
         document.getElementById("presetSelect").onchange = (e) => {
           const val = e.target.value;
-          if (val.startsWith("gh_")) return; // 由 GitHub 監聽器處理
+          if (val.startsWith("gh_")) return;
           if (val.startsWith("db_")) {
             this.loadSongFromDB(val.replace("db_", ""));
           } else {
@@ -2139,10 +2350,7 @@
           }
         };
 
-        // 時間軸點擊尋址 (Seek)、取景框平移 (Pan) 與左右拉桿縮放 (Zoom)
         this.setupTimelineInteractions();
-
-        // 彈窗開關綁定
         this.setupModalControls();
       }
 
@@ -2153,7 +2361,7 @@
         const handleR = document.getElementById("vpHandleR");
         if (!track || !vpBox) return;
 
-        let dragMode = null; // "seek" | "pan" | "zoomL" | "zoomR"
+        let dragMode = null;
         let startX = 0;
         let startTime = 0;
         let startZoom = this.zoomScale;
@@ -2166,7 +2374,6 @@
           this.seek(ratio * this.songDuration);
         };
 
-        // 1. 點擊背景軌道直接尋址並支援按住滑動尋址
         track.addEventListener("mousedown", (e) => {
           if (e.target === vpBox || e.target === handleL || e.target === handleR) return;
           dragMode = "seek";
@@ -2178,7 +2385,6 @@
           seekByClientX(getClientX(e));
         }, { passive: true });
 
-        // 2. 按住取景框中間左右拖曳平移時間
         vpBox.addEventListener("mousedown", (e) => {
           if (e.target === handleL || e.target === handleR) return;
           e.stopPropagation();
@@ -2195,7 +2401,6 @@
           startTime = this.currentTime;
         }, { passive: true });
 
-        // 3. 按住左右拉桿縮放時間軸比例
         const bindZoomHandle = (el, mode) => {
           el.addEventListener("mousedown", (e) => {
             e.stopPropagation();
@@ -2213,7 +2418,6 @@
         bindZoomHandle(handleL, "zoomL");
         bindZoomHandle(handleR, "zoomR");
 
-        // 全局移動與放開處理
         const onMove = (e) => {
           if (!dragMode) return;
           const cx = getClientX(e);
@@ -2227,7 +2431,6 @@
             this.seek(startTime + dxRatio * this.songDuration);
           } else if (dragMode === "zoomR" || dragMode === "zoomL") {
             const dx = dragMode === "zoomR" ? (cx - startX) : (startX - cx);
-            // 拉寬取景框 -> 縮小倍率 (看更廣)；拉窄取景框 -> 放大倍率 (看更細)
             const deltaScale = -(dx / rect.width) * 3.0;
             this.zoomScale = Math.max(0.4, Math.min(3.5, startZoom + deltaScale));
             this.drawTimeline();
@@ -2246,7 +2449,6 @@
         window.addEventListener("mouseup", onEnd);
         window.addEventListener("touchend", onEnd);
 
-        // 4. 時間軸上支援滑鼠滾輪縮放
         track.addEventListener("wheel", (e) => {
           e.preventDefault();
           const step = e.deltaY > 0 ? -0.15 : 0.15;
@@ -2414,6 +2616,18 @@
           });
         });
 
+        // 在頂部時間軸微縮圖上也標示出金色錄音光線軌跡分佈
+        if (this.recordedPitchTrail.length > 0) {
+          this.tCtx.fillStyle = "rgba(250, 204, 21, 0.85)";
+          for (let i = 0; i < this.recordedPitchTrail.length; i += 2) {
+            const pt = this.recordedPitchTrail[i];
+            if (!pt) continue;
+            const rx = (pt.time / this.songDuration) * w;
+            const ry = h - ((pt.midi - 36) / (84 - 36)) * h;
+            this.tCtx.fillRect(rx, Math.max(1, ry - 1), 2.5, 2.5);
+          }
+        }
+
         // 更新進度指針位置與取景框位置、寬度
         const ratio = Math.max(0, Math.min(1, this.currentTime / this.songDuration));
         document.getElementById("timelineProgress").style.width = `${ratio * 100}%`;
@@ -2440,12 +2654,12 @@
           this.currentTime += dt;
           if (this.currentTime >= this.songDuration) {
             this.currentTime = this.songDuration;
-            this.pause();
+            if (this.isReplaying) this.stopReplay();
+            else this.pause();
           }
           this.updateTimeDisplay();
           this.drawTimeline();
 
-          // 觸發音符發聲 (GM 合成器調度)
           this.scheduleAudioPlayback(prevT, this.currentTime);
         }
 
@@ -2453,26 +2667,37 @@
         const detectRes = this.pitchEngine.detect();
         this.updateMicUI(detectRes);
 
-        // 紀錄歷史音高軌跡點（播放時依據歌曲時間軸，暫停時依據真實流逝時間向左飄移）
+        // 紀錄即時音高軌跡點
         const trailTime = this.isPlaying ? this.currentTime : (timestamp / 1000);
-        if (detectRes.pitch && detectRes.midi) {
+        if (!this.isReplaying && detectRes.pitch && detectRes.midi) {
           this.pitchTrail.push({
             time: trailTime,
             midi: detectRes.midi,
             isPlayingMode: this.isPlaying
           });
+
+          // 若正在錄音中，同步保存至整首復盤金色光線軌跡陣列
+          if (this.isPlaying && this.mediaRecorder && this.mediaRecorder.state === "recording") {
+            this.recordedPitchTrail.push({
+              time: this.currentTime,
+              midi: detectRes.midi
+            });
+          }
         } else {
-          // 沒聲音時插入斷點，避免靜音前後的線條硬連在一起
           if (this.pitchTrail.length > 0 && this.pitchTrail[this.pitchTrail.length - 1] !== null) {
             this.pitchTrail.push(null);
           }
+          if (this.isPlaying && this.mediaRecorder && this.mediaRecorder.state === "recording") {
+            if (this.recordedPitchTrail.length > 0 && this.recordedPitchTrail[this.recordedPitchTrail.length - 1] !== null) {
+              this.recordedPitchTrail.push(null);
+            }
+          }
         }
-        // 只保留最近 300 筆軌跡點以維持流暢度
+
         if (this.pitchTrail.length > 300) {
           this.pitchTrail.shift();
         }
 
-        // 繪製跑道與光條
         this.renderCanvas(detectRes, timestamp);
 
         requestAnimationFrame((ts) => this.renderLoop(ts));
@@ -2481,7 +2706,6 @@
       scheduleAudioPlayback(prevTime, curTime) {
         if (this.audioEngine.isMuted) return;
 
-        // 節拍器滴答調度
         if (this.audioEngine.metronomeEnabled) {
           const beatSec = 60 / this.currentBpm;
           const prevBeat = Math.floor(prevTime / beatSec);
@@ -2491,7 +2715,6 @@
           }
         }
 
-        // MIDI 音符調度
         this.currentTracks.forEach(tr => {
           if (tr.muted || tr.volume <= 0) return;
           tr.notes.forEach(n => {
@@ -2526,11 +2749,9 @@
         const getY = (m) => h - ((m - minMidi) / midiRange) * h;
 
         // 1. 繪製男女聲背景音域導引
-        // C2-C3 男聲區間 (36-48)
         this.ctx.fillStyle = "rgba(14, 165, 233, 0.04)";
         this.ctx.fillRect(0, getY(48), w, getY(36) - getY(48));
 
-        // C4-C5 女聲區間 (60-72)
         this.ctx.fillStyle = "rgba(244, 63, 94, 0.04)";
         this.ctx.fillRect(0, getY(72), w, getY(60) - getY(72));
 
@@ -2552,7 +2773,7 @@
         for (let m = minMidi; m <= maxMidi; m++) {
           const y = getY(m);
           const isSharp = [1, 3, 6, 8, 10].includes(m % 12);
-          if (m % 12 === 0) { // C 鍵標籤
+          if (m % 12 === 0) {
             this.ctx.fillStyle = "#38bdf8";
             this.ctx.font = "bold 9px monospace";
             this.ctx.fillText(`C${m / 12 - 1}`, 4, y + 3);
@@ -2561,7 +2782,7 @@
           this.ctx.fillRect(keyW - (isSharp ? 14 : 6), y - 2, isSharp ? 14 : 6, 4);
         }
 
-        // 唱針位置 (以畫布 28% 為唱針軸)
+        // 唱針位置
         const hitX = Math.max(keyW + 60, w * 0.28);
         this.ctx.strokeStyle = "#38bdf8";
         this.ctx.lineWidth = 2;
@@ -2570,8 +2791,8 @@
         this.ctx.lineTo(hitX, h);
         this.ctx.stroke();
 
-        // 3. 繪製音符光棒與歌詞 (隨時間軸縮放倍率動態調整寬度)
-        const pps = 140 * this.zoomScale; // Pixels per second
+        // 3. 繪製音符光棒與歌詞
+        const pps = 140 * this.zoomScale;
         let currentHitLyric = "";
 
         this.currentTracks.forEach(tr => {
@@ -2585,14 +2806,12 @@
             const nw = realDur * pps;
             const ny = getY(n.midi) - 9;
 
-            if (nx + nw < 0 || nx > w) return; // 視窗外不畫
+            if (nx + nw < 0 || nx > w) return;
 
-            // 檢查唱針是否正唱在該音符上
             if (this.currentTime >= realStart && this.currentTime <= realStart + realDur) {
               if (n.lyric) currentHitLyric = n.lyric;
             }
 
-            // 繪製音符膠囊
             this.ctx.fillStyle = isLead ? "rgba(244, 63, 94, 0.95)" : "rgba(245, 158, 11, 0.4)";
             this.ctx.strokeStyle = isLead ? "#f43f5e" : "#f59e0b";
             this.ctx.lineWidth = 1.5;
@@ -2602,7 +2821,6 @@
             this.ctx.fill();
             this.ctx.stroke();
 
-            // 繪製歌詞大字
             if (n.lyric) {
               this.ctx.fillStyle = "#ffffff";
               this.ctx.font = "bold 18px 'Microsoft YaHei', sans-serif";
@@ -2616,43 +2834,96 @@
           });
         });
 
-        // 4. 繪製唱歌歷史音準軌跡線 (Pitch Trail)
-        const refTime = this.isPlaying ? this.currentTime : (timestamp / 1000);
-        this.ctx.save();
-        this.ctx.strokeStyle = "#38bdf8";
-        this.ctx.lineWidth = 3.5;
-        this.ctx.lineCap = "round";
-        this.ctx.lineJoin = "round";
-        this.ctx.shadowColor = "#0284c7";
-        this.ctx.shadowBlur = 8;
+        // 4. 繪製已錄製的金色復盤音準光線軌跡 (Recorded Golden Pitch Trail)
+        if (this.recordedPitchTrail.length > 1) {
+          this.ctx.save();
+          this.ctx.strokeStyle = this.isReplaying ? "#facc15" : "rgba(250, 204, 21, 0.75)";
+          this.ctx.lineWidth = this.isReplaying ? 4.5 : 3.5;
+          this.ctx.lineCap = "round";
+          this.ctx.lineJoin = "round";
+          this.ctx.shadowColor = "#eab308";
+          this.ctx.shadowBlur = this.isReplaying ? 14 : 8;
 
-        this.ctx.beginPath();
-        let isDrawingPath = false;
+          this.ctx.beginPath();
+          let drawingRec = false;
+          let replayCurrentMidi = null;
 
-        for (let i = 0; i < this.pitchTrail.length; i++) {
-          const pt = this.pitchTrail[i];
-          if (!pt || pt.isPlayingMode !== this.isPlaying) {
-            isDrawingPath = false;
-            continue;
+          for (let i = 0; i < this.recordedPitchTrail.length; i++) {
+            const pt = this.recordedPitchTrail[i];
+            if (!pt) {
+              drawingRec = false;
+              continue;
+            }
+            const rx = hitX + (pt.time - this.currentTime) * pps;
+            if (Math.abs(pt.time - this.currentTime) < 0.06) {
+              replayCurrentMidi = pt.midi;
+            }
+            if (rx < keyW || rx > w) {
+              drawingRec = false;
+              continue;
+            }
+            const ry = getY(pt.midi);
+            if (!drawingRec) {
+              this.ctx.moveTo(rx, ry);
+              drawingRec = true;
+            } else {
+              this.ctx.lineTo(rx, ry);
+            }
           }
-          const tx = hitX - (refTime - pt.time) * pps;
-          if (tx < keyW || tx > hitX + 2) {
-            isDrawingPath = false;
-            continue;
+          this.ctx.stroke();
+
+          // 復盤回放時在唱針上繪製發光金色錄音追蹤光點
+          if (this.isReplaying && replayCurrentMidi !== null) {
+            const rpy = getY(replayCurrentMidi);
+            this.ctx.fillStyle = "#fde047";
+            this.ctx.shadowColor = "#facc15";
+            this.ctx.shadowBlur = 16;
+            this.ctx.beginPath();
+            this.ctx.arc(hitX, rpy, 8, 0, Math.PI * 2);
+            this.ctx.fill();
           }
-          const ty = getY(pt.midi);
-          if (!isDrawingPath) {
-            this.ctx.moveTo(tx, ty);
-            isDrawingPath = true;
-          } else {
-            this.ctx.lineTo(tx, ty);
-          }
+          this.ctx.restore();
         }
-        this.ctx.stroke();
-        this.ctx.restore();
 
-        // 5. 繪製麥克風即時音高光點與懸浮歌詞氣泡
-        if (detectRes.pitch && detectRes.midi >= minMidi && detectRes.midi <= maxMidi) {
+        // 5. 繪製當前即時唱歌藍色音準軌跡線 (Live Pitch Trail)
+        if (!this.isReplaying) {
+          const refTime = this.isPlaying ? this.currentTime : (timestamp / 1000);
+          this.ctx.save();
+          this.ctx.strokeStyle = "#38bdf8";
+          this.ctx.lineWidth = 3.5;
+          this.ctx.lineCap = "round";
+          this.ctx.lineJoin = "round";
+          this.ctx.shadowColor = "#0284c7";
+          this.ctx.shadowBlur = 8;
+
+          this.ctx.beginPath();
+          let isDrawingPath = false;
+
+          for (let i = 0; i < this.pitchTrail.length; i++) {
+            const pt = this.pitchTrail[i];
+            if (!pt || pt.isPlayingMode !== this.isPlaying) {
+              isDrawingPath = false;
+              continue;
+            }
+            const tx = hitX - (refTime - pt.time) * pps;
+            if (tx < keyW || tx > hitX + 2) {
+              isDrawingPath = false;
+              continue;
+            }
+            const ty = getY(pt.midi);
+            if (!isDrawingPath) {
+              this.ctx.moveTo(tx, ty);
+              isDrawingPath = true;
+            } else {
+              this.ctx.lineTo(tx, ty);
+            }
+          }
+          this.ctx.stroke();
+          this.ctx.restore();
+        }
+
+        // 6. 繪製麥克風即時音高光點與懸浮歌詞氣泡
+        if (!this.isReplaying && detectRes.pitch && detectRes.midi >= minMidi && detectRes.midi <= maxMidi) {
           const py = getY(detectRes.midi);
 
           this.ctx.fillStyle = "#38bdf8";
@@ -2663,7 +2934,6 @@
           this.ctx.fill();
           this.ctx.shadowBlur = 0;
 
-          // 當前唱到的歌詞氣泡
           if (currentHitLyric) {
             this.ctx.fillStyle = "#fde047";
             this.ctx.font = "bold 20px 'Microsoft YaHei', sans-serif";
