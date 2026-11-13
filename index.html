@@ -1571,6 +1571,7 @@
         this.currentTime = 0;
         this.isPlaying = false;
         this.pitchTrail = []; // 保存歷史音高軌跡點 { time, midi, isHit }
+        this.zoomScale = 1.0; // 時間軸水平縮放倍率 (0.4 ~ 3.5)
 
         // GitHub 雲端曲庫相關設定與狀態（出廠預設綁定 wu1008mon/ktv-songs/songs）
         this.ghOwner = localStorage.getItem("ktv_gh_owner") || "wu1008mon";
@@ -1924,13 +1925,13 @@
 
         this.canvas.width = w * dpr;
         this.canvas.height = h * dpr;
-        this.ctx.scale(dpr, dpr);
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         const tw = this.timelineCanvas.parentElement.clientWidth;
         const th = this.timelineCanvas.parentElement.clientHeight;
         this.timelineCanvas.width = tw * dpr;
         this.timelineCanvas.height = th * dpr;
-        this.tCtx.scale(dpr, dpr);
+        this.tCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         this.drawTimeline();
       }
@@ -2138,8 +2139,120 @@
           }
         };
 
+        // 時間軸點擊尋址 (Seek)、取景框平移 (Pan) 與左右拉桿縮放 (Zoom)
+        this.setupTimelineInteractions();
+
         // 彈窗開關綁定
         this.setupModalControls();
+      }
+
+      setupTimelineInteractions() {
+        const track = document.getElementById("timelineTrack");
+        const vpBox = this.timelineViewportBox;
+        const handleL = document.getElementById("vpHandleL");
+        const handleR = document.getElementById("vpHandleR");
+        if (!track || !vpBox) return;
+
+        let dragMode = null; // "seek" | "pan" | "zoomL" | "zoomR"
+        let startX = 0;
+        let startTime = 0;
+        let startZoom = this.zoomScale;
+
+        const getClientX = (e) => (e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX);
+
+        const seekByClientX = (clientX) => {
+          const rect = track.getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+          this.seek(ratio * this.songDuration);
+        };
+
+        // 1. 點擊背景軌道直接尋址並支援按住滑動尋址
+        track.addEventListener("mousedown", (e) => {
+          if (e.target === vpBox || e.target === handleL || e.target === handleR) return;
+          dragMode = "seek";
+          seekByClientX(e.clientX);
+        });
+        track.addEventListener("touchstart", (e) => {
+          if (e.target === vpBox || e.target === handleL || e.target === handleR) return;
+          dragMode = "seek";
+          seekByClientX(getClientX(e));
+        }, { passive: true });
+
+        // 2. 按住取景框中間左右拖曳平移時間
+        vpBox.addEventListener("mousedown", (e) => {
+          if (e.target === handleL || e.target === handleR) return;
+          e.stopPropagation();
+          dragMode = "pan";
+          startX = e.clientX;
+          startTime = this.currentTime;
+          vpBox.style.cursor = "grabbing";
+        });
+        vpBox.addEventListener("touchstart", (e) => {
+          if (e.target === handleL || e.target === handleR) return;
+          e.stopPropagation();
+          dragMode = "pan";
+          startX = getClientX(e);
+          startTime = this.currentTime;
+        }, { passive: true });
+
+        // 3. 按住左右拉桿縮放時間軸比例
+        const bindZoomHandle = (el, mode) => {
+          el.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+            dragMode = mode;
+            startX = e.clientX;
+            startZoom = this.zoomScale;
+          });
+          el.addEventListener("touchstart", (e) => {
+            e.stopPropagation();
+            dragMode = mode;
+            startX = getClientX(e);
+            startZoom = this.zoomScale;
+          }, { passive: true });
+        };
+        bindZoomHandle(handleL, "zoomL");
+        bindZoomHandle(handleR, "zoomR");
+
+        // 全局移動與放開處理
+        const onMove = (e) => {
+          if (!dragMode) return;
+          const cx = getClientX(e);
+          const rect = track.getBoundingClientRect();
+          if (rect.width <= 0) return;
+
+          if (dragMode === "seek") {
+            seekByClientX(cx);
+          } else if (dragMode === "pan") {
+            const dxRatio = (cx - startX) / rect.width;
+            this.seek(startTime + dxRatio * this.songDuration);
+          } else if (dragMode === "zoomR" || dragMode === "zoomL") {
+            const dx = dragMode === "zoomR" ? (cx - startX) : (startX - cx);
+            // 拉寬取景框 -> 縮小倍率 (看更廣)；拉窄取景框 -> 放大倍率 (看更細)
+            const deltaScale = -(dx / rect.width) * 3.0;
+            this.zoomScale = Math.max(0.4, Math.min(3.5, startZoom + deltaScale));
+            this.drawTimeline();
+          }
+        };
+
+        const onEnd = () => {
+          if (dragMode) {
+            dragMode = null;
+            vpBox.style.cursor = "grab";
+          }
+        };
+
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("touchmove", onMove, { passive: true });
+        window.addEventListener("mouseup", onEnd);
+        window.addEventListener("touchend", onEnd);
+
+        // 4. 時間軸上支援滑鼠滾輪縮放
+        track.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          const step = e.deltaY > 0 ? -0.15 : 0.15;
+          this.zoomScale = Math.max(0.4, Math.min(3.5, this.zoomScale + step));
+          this.drawTimeline();
+        }, { passive: false });
       }
 
       setupModalControls() {
@@ -2301,10 +2414,20 @@
           });
         });
 
-        // 更新進度指針位置
+        // 更新進度指針位置與取景框位置、寬度
         const ratio = Math.max(0, Math.min(1, this.currentTime / this.songDuration));
         document.getElementById("timelineProgress").style.width = `${ratio * 100}%`;
         document.getElementById("timelineThumb").style.left = `${ratio * 100}%`;
+
+        if (this.timelineViewportBox) {
+          const mainW = this.canvas.parentElement.clientWidth || w;
+          const pps = 140 * this.zoomScale;
+          const visibleSec = mainW / pps;
+          const vpWidthPct = Math.max(6, Math.min(100, (visibleSec / this.songDuration) * 100));
+          const vpLeftPct = Math.max(0, Math.min(100 - vpWidthPct, ratio * 100 - vpWidthPct * 0.28));
+          this.timelineViewportBox.style.width = `${vpWidthPct}%`;
+          this.timelineViewportBox.style.left = `${vpLeftPct}%`;
+        }
       }
 
       renderLoop(timestamp) {
@@ -2447,8 +2570,8 @@
         this.ctx.lineTo(hitX, h);
         this.ctx.stroke();
 
-        // 3. 繪製音符光棒與歌詞
-        const pps = 140; // Pixels per second
+        // 3. 繪製音符光棒與歌詞 (隨時間軸縮放倍率動態調整寬度)
+        const pps = 140 * this.zoomScale; // Pixels per second
         let currentHitLyric = "";
 
         this.currentTracks.forEach(tr => {
